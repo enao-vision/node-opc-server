@@ -1,5 +1,5 @@
+import { AttributeIds, DataType, Variant } from 'node-opcua';
 import {
-  AttributeIds,
   BrowseDirection,
   ClientMonitoredItem,
   ClientSubscription,
@@ -45,6 +45,7 @@ async function main() {
       password: 'securepassword',
       type: 1, // UserName
     });
+
     console.log('session created !');
 
     // step 3 : browse
@@ -74,6 +75,35 @@ async function main() {
     });
 
     console.log('ns=1;s=hello_world ->', helloWorldValue.toString());
+    // Example 3: Write to Pressure variable
+    console.log('\n=== Writing to Pressure variable ===');
+    const pressureNodeId = 'ns=1;s=Pressure';
+
+    // Read current value
+    const currentPressure = await session.read({
+      nodeId: pressureNodeId,
+      attributeId: AttributeIds.Value,
+    });
+    console.log(`Current pressure: ${currentPressure.value.value} hPa`);
+
+    // Write new value
+    const newPressure = 1020;
+    const writePressureResult = await session.write({
+      nodeId: pressureNodeId,
+      attributeId: AttributeIds.Value,
+      value: new Variant({ dataType: DataType.Int32, value: newPressure }),
+    });
+
+    console.log(`Write result: ${writePressureResult.toString()}`);
+
+    // Read back to verify
+    const updatedPressure = await session.read({
+      nodeId: pressureNodeId,
+      attributeId: AttributeIds.Value,
+    });
+
+    console.log(`Updated pressure: ${updatedPressure.value.value} hPa`);
+
     //  find method id with browseName 'Name'
 
     // const methodId = await findMethodId(session, 'ns=1;s=name', 'Name');

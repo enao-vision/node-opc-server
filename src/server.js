@@ -1,4 +1,12 @@
-import { DataType, OPCUAServer, StatusCodes, Variant, VariantArrayType } from 'node-opcua';
+import {
+  DataType,
+  OPCUAServer,
+  SecurityPolicy,
+  StatusCodes,
+  Variant,
+  VariantArrayType,
+} from 'node-opcua';
+import { LogLevel, setLogLevel } from 'node-opcua-debug';
 
 // const server = new OPCUAServer({});
 // await server.start();
@@ -8,6 +16,9 @@ import { DataType, OPCUAServer, StatusCodes, Variant, VariantArrayType } from 'n
 
 // await server.shutdown();
 // Let's create an instance of OPCUAServer
+
+// Set to most verbose level
+setLogLevel(LogLevel.Debug);
 
 const userManager = {
   isValidUser: function (userName, password) {
@@ -20,11 +31,16 @@ const userManager = {
 };
 
 const server = new OPCUAServer({
-  // hostname: '6.tcp.eu.ngrok.io',
+  hostname: '0.0.0.0',
   port: 4334, // the port of the listening socket of the server
   resourcePath: '/UA/MyOPCServer', // this path will be added to the endpoint resource name
   userManager: userManager,
   allowAnonymous: false,
+  // securityPolicies: [
+  //   SecurityPolicy.None,
+  //   // SecurityPolicy.Basic128Rsa15,
+  //   // SecurityPolicy.Basic256Sha256,
+  // ],
   buildInfo: {
     productName: 'MySampleServer1',
     buildNumber: '7658',
@@ -105,6 +121,31 @@ method.bindMethod((inputArguments, context, callback) => {
   };
 
   callback(null, callMethodResult);
+});
+
+// Example 3: Writable integer variable with validation
+let pressure = 1013;
+
+namespace.addVariable({
+  componentOf: device,
+  browseName: 'Pressure',
+  nodeId: 'ns=1;s=Pressure',
+  dataType: 'Int32',
+  minimumSamplingInterval: 100,
+  value: {
+    get: () => new Variant({ dataType: DataType.Int32, value: pressure }),
+    set: (variant) => {
+      const newPressure = parseInt(variant.value);
+      if (newPressure >= 0 && newPressure <= 2000) {
+        pressure = newPressure;
+        console.log(`Pressure set to: ${pressure} hPa`);
+        return StatusCodes.Good;
+      } else {
+        console.log(`Invalid pressure value: ${newPressure} hPa (must be between 0 and 2000)`);
+        return StatusCodes.BadOutOfRange;
+      }
+    },
+  },
 });
 
 server.start(function () {
