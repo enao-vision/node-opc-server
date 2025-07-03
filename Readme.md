@@ -11,3 +11,4 @@
 ### Exposed variables
 
     - node id: `ns=1;s=hello_world` -> A string value that updates each second
+    - node id: `ns=1;s=Pressure` -> int32 variable to read/write
