@@ -51,26 +51,59 @@ const device = namespace.addObject({
   nodeId: 'ns=1;s=MyDevice', // Explicitly set nodeId for easier access
 });
 
-// add some variables
-// add a variable named MyVariable1 to the newly created folder "MyDevice"
+// Production line name variable (read-only)
+const productionLineNames = ['Assembly Line 1', 'Assembly Line 2', 'Assembly Line 3', 'Assembly Line 4', 'Assembly Line 5'];
+let currentLineIndex = 0;
 
-// emulate variable1 changing every 500 ms
-
-const uaVariable1 = namespace.addVariable({
+const productionLineRunning = namespace.addVariable({
   componentOf: device,
-  nodeId: 's=hello_world', // a string nodeID
-  browseName: 'HelloWorld',
+  nodeId: 'ns=1;s=production_line_running',
+  browseName: 'ProductionLineRunning',
   dataType: 'String',
 });
 
-// This will update the variable every 500ms to help with multiple test reads from the client
+// Production line status variable that updates every second with status and timestamp
+const productionLineStatuses = ['RUNNING', 'STOPPED', 'MAINTENANCE', 'IDLE', 'ERROR'];
+let currentStatusIndex = 0;
+
+const productionLineStatus = namespace.addVariable({
+  componentOf: device,
+  nodeId: 'ns=1;s=production_line_status',
+  browseName: 'ProductionLineStatus',
+  dataType: 'String',
+});
+
+// This will update both variables every second
 const timerId = setInterval(() => {
-  uaVariable1.setValueFromSource(
+  // Update production line name (changes less frequently)
+  const lineName = productionLineNames[currentLineIndex];
+  
+  // Update production line status with timestamp
+  const status = productionLineStatuses[currentStatusIndex];
+  const timestamp = new Date().toISOString();
+  const statusMessage = `${status} | ${timestamp}`;
+  
+  productionLineRunning.setValueFromSource(
     new Variant({
       dataType: DataType.String,
-      value: `iOS Hello World ${Math.random()}, updated at ${new Date().toISOString()}`,
+      value: lineName,
     }),
   );
+  
+  productionLineStatus.setValueFromSource(
+    new Variant({
+      dataType: DataType.String,
+      value: statusMessage,
+    }),
+  );
+  
+  // Cycle through statuses (changes every second)
+  currentStatusIndex = (currentStatusIndex + 1) % productionLineStatuses.length;
+  
+  // Cycle through line names (changes every 5 seconds)
+  if (currentStatusIndex === 0) {
+    currentLineIndex = (currentLineIndex + 1) % productionLineNames.length;
+  }
 }, 1000);
 
 addressSpace.registerShutdownTask(() => {
@@ -78,21 +111,21 @@ addressSpace.registerShutdownTask(() => {
 });
 
 const method = namespace.addMethod(device, {
-  nodeId: 'ns=1;s=name',
-  browseName: 'Name',
+  nodeId: 'ns=1;s=sound_the_alarm',
+  browseName: 'SoundTheAlarm',
 
   inputArguments: [
     {
-      name: 'nbSayMyName',
-      description: { text: 'The name the server should say' },
+      name: 'alarmMessage',
+      description: { text: 'The alarm message to broadcast' },
       dataType: DataType.String,
     },
   ],
 
   outputArguments: [
     {
-      name: 'YourName',
-      description: { text: 'The name the server said' },
+      name: 'alarmStatus',
+      description: { text: 'The status of the alarm activation' },
       dataType: DataType.String,
       valueRank: -1, // -1 means scalar (single value), not an array
     },
@@ -100,9 +133,10 @@ const method = namespace.addMethod(device, {
 });
 
 method.bindMethod((inputArguments, context, callback) => {
-  const theName = inputArguments[0].value;
+  const alarmMessage = inputArguments[0].value;
+  const timestamp = new Date().toISOString();
 
-  console.log('The client requested to say:', theName);
+  console.log(`ALARM TRIGGERED: ${alarmMessage} at ${timestamp}`);
 
   const callMethodResult = {
     statusCode: StatusCodes.Good,
@@ -110,7 +144,7 @@ method.bindMethod((inputArguments, context, callback) => {
       {
         dataType: DataType.String,
         arrayType: VariantArrayType.Scalar, // Scalar, not Array
-        value: `Your name is ${theName}`,
+        value: `ALARM ACTIVATED: "${alarmMessage}" | Time: ${timestamp} | Status: ACKNOWLEDGED`,
       },
     ],
   };
@@ -118,25 +152,25 @@ method.bindMethod((inputArguments, context, callback) => {
   callback(null, callMethodResult);
 });
 
-// Example 3: Writable integer variable with validation
-let pressure = 1013;
+// iPhone product inspections counter (writable integer variable with validation)
+let iphoneProductInspections = 0;
 
 namespace.addVariable({
   componentOf: device,
-  browseName: 'Pressure',
-  nodeId: 'ns=1;s=Pressure',
+  browseName: 'iPhoneProductInspections',
+  nodeId: 'ns=1;s=iphone_product_inspections',
   dataType: 'Int32',
   minimumSamplingInterval: 100,
   value: {
-    get: () => new Variant({ dataType: DataType.Int32, value: pressure }),
+    get: () => new Variant({ dataType: DataType.Int32, value: iphoneProductInspections }),
     set: (variant) => {
-      const newPressure = parseInt(variant.value);
-      if (newPressure >= 0 && newPressure <= 2000) {
-        pressure = newPressure;
-        console.log(`Pressure set to: ${pressure} hPa`);
+      const newInspections = parseInt(variant.value);
+      if (newInspections >= 0 && newInspections <= 100000) {
+        iphoneProductInspections = newInspections;
+        console.log(`iPhone product inspections count set to: ${iphoneProductInspections}`);
         return StatusCodes.Good;
       } else {
-        console.log(`Invalid pressure value: ${newPressure} hPa (must be between 0 and 2000)`);
+        console.log(`Invalid inspection count: ${newInspections} (must be between 0 and 100000)`);
         return StatusCodes.BadOutOfRange;
       }
     },

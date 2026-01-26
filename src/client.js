@@ -60,60 +60,67 @@ async function main() {
         ResultMask.TypeDefinition,
     });
 
-    // step 4 : read a variable with readVariableValue
-    const helloWorldValue = await session.read({
-      nodeId: 'ns=1;s=hello_world',
+    // step 4 : read variables with readVariableValue
+    console.log('=== Example read ===');
+    
+    const productionLineValue = await session.read({
+      nodeId: 'ns=1;s=production_line_running',
       attributeId: AttributeIds.Value,
     });
 
-    console.log('=== Example read ===');
-    console.log('Read variable "ns=1;s=hello_world" ->', helloWorldValue.value.value, '\n');
-    console.log('hello_world object ->', helloWorldValue.toString(), '\n');
+    console.log('Read variable "ns=1;s=production_line_running" ->', productionLineValue.value.value);
 
-    // Example 3: Write to Pressure variable
+    const productionLineStatusValue = await session.read({
+      nodeId: 'ns=1;s=production_line_status',
+      attributeId: AttributeIds.Value,
+    });
+
+    console.log('Read variable "ns=1;s=production_line_status" ->', productionLineStatusValue.value.value, '\n');
+
+    // Example 3: Write to iPhone product inspections variable
     console.log('\n=== Example write ===');
-    console.log('=== Writing to Pressure variable ===');
+    console.log('=== Writing to iPhone product inspections variable ===');
 
-    const pressureNodeId = 'ns=1;s=Pressure';
+    const inspectionsNodeId = 'ns=1;s=iphone_product_inspections';
 
     // Read current value
-    const currentPressure = await session.read({
-      nodeId: pressureNodeId,
+    const currentInspections = await session.read({
+      nodeId: inspectionsNodeId,
       attributeId: AttributeIds.Value,
     });
 
-    console.log(`Current pressure: ${currentPressure.value.value} hPa`);
+    console.log(`Current iPhone product inspections: ${currentInspections.value.value}`);
 
     // Write new value
-    const newPressure = Math.floor(Math.random() * 2000);
+    const newInspections = Math.floor(Math.random() * 100000);
 
-    const writePressureResult = await session.write({
-      nodeId: pressureNodeId,
+    const writeInspectionsResult = await session.write({
+      nodeId: inspectionsNodeId,
       attributeId: AttributeIds.Value,
       value: {
         value: {
           dataType: DataType.Int32,
-          value: newPressure,
+          value: newInspections,
         },
       },
     });
 
     console.log(
-      `Writing new pressure value ${newPressure} with result: ${writePressureResult.toString()}`,
+      `Writing new inspection count ${newInspections} with result: ${writeInspectionsResult.toString()}`,
     );
 
     // Read back to verify
-    const updatedPressure = await session.read({
-      nodeId: pressureNodeId,
+    const updatedInspections = await session.read({
+      nodeId: inspectionsNodeId,
       attributeId: AttributeIds.Value,
     });
 
-    console.log(`Reading back the pressure to verify the write`);
-    console.log(`Updated pressure: ${updatedPressure.value.value} hPa\n`);
+    console.log(`Reading back the inspection count to verify the write`);
+    console.log(`Updated iPhone product inspections: ${updatedInspections.value.value}\n`);
 
-    // Example: Call the Name method
+    // Example: Call the sound_the_alarm method
     console.log('\n=== Example method call ===');
-    console.log('=== Calling the Name method ===');
+    console.log('=== Calling the SoundTheAlarm method ===');
 
     // Use the explicit device nodeId, or try to find it via browse path
     let deviceNodeId = 'ns=1;s=MyDevice';
@@ -142,10 +149,10 @@ async function main() {
     }
 
     if (deviceFound) {
-      const methodNodeId = 'ns=1;s=name';
-      const inputName = 'John Doe';
+      const methodNodeId = 'ns=1;s=sound_the_alarm';
+      const alarmMessage = 'Production line 3: Quality check failure detected';
 
-      console.log(`Calling method: ${methodNodeId} with input: "${inputName}"`);
+      console.log(`Calling method: ${methodNodeId} with alarm message: "${alarmMessage}"`);
 
       try {
         const methodResult = await session.call({
@@ -154,7 +161,7 @@ async function main() {
           inputArguments: [
             {
               dataType: DataType.String,
-              value: inputName,
+              value: alarmMessage,
             },
           ],
         });
@@ -162,8 +169,8 @@ async function main() {
         if (methodResult.statusCode.isGood()) {
           const outputMessage = methodResult.outputArguments[0].value;
           console.log(`Method call successful!`);
-          console.log(`Input: "${inputName}"`);
-          console.log(`Output: "${outputMessage}"`);
+          console.log(`Alarm message: "${alarmMessage}"`);
+          console.log(`Alarm status: "${outputMessage}"`);
         } else {
           console.log(`Method call failed with status: ${methodResult.statusCode.toString()}`);
         }
@@ -173,7 +180,7 @@ async function main() {
     }
 
     console.log(
-      '\n=== Test subscription that will log the changes to the hello_world variable ===',
+      '\n=== Test subscription that will log the changes to the production_line_status variable ===',
     );
     // install a subscription and install a monitored item for 10 seconds
     const subscription = ClientSubscription.create(session, {
@@ -205,7 +212,7 @@ async function main() {
     const monitoredItem = ClientMonitoredItem.create(
       subscription,
       {
-        nodeId: 'ns=1;s=hello_world',
+        nodeId: 'ns=1;s=production_line_status',
         attributeId: AttributeIds.Value,
       },
       parameters,
@@ -213,7 +220,7 @@ async function main() {
     );
 
     monitoredItem.on('changed', (dataValue) => {
-      console.log('hello_world changed ->', dataValue.value.toString());
+      console.log('production_line_status changed ->', dataValue.value.toString());
     });
 
     // step 6: finding the nodeId of a node by Browse name

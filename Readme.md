@@ -22,12 +22,13 @@ The OPC UA server (`src/server.js`) provides the following functionality:
 
 - **Exposed Variables**:
 
-  - `ns=1;s=hello_world` (String): A read-only variable that automatically updates every second with a timestamped message
-  - `ns=1;s=Pressure` (Int32): A writable variable representing pressure in hPa with validation (accepts values between 0 and 2000)
+  - `ns=1;s=production_line_running` (String): A read-only variable that returns the name of the production line (e.g., "Assembly Line 2")
+  - `ns=1;s=production_line_status` (String): A read-only variable that automatically updates every second with the production line status (RUNNING, STOPPED, MAINTENANCE, IDLE, ERROR) alongside the current timestamp
+  - `ns=1;s=iphone_product_inspections` (Int32): A writable variable representing iPhone product inspection count with validation (accepts values between 0 and 100,000)
 
 - **Methods**:
 
-  - `ns=1;s=name` (Name): A method that accepts a string input and returns a formatted response
+  - `ns=1;s=sound_the_alarm` (SoundTheAlarm): A method that accepts an alarm message string input and returns an alarm activation status with timestamp
 
 - **Server Configuration**:
   - Endpoint: `opc.tcp://0.0.0.0:4334/UA/MyOPCServer`
@@ -53,7 +54,8 @@ The OPC UA client (`src/client.js`) demonstrates various OPC UA operations:
 - **Connection & Authentication**: Connects to the server and authenticates using credentials
 - **Browse Operations**: Browses the server's address space to discover available nodes
 - **Read Operations**: Reads variable values from the server
-- **Write Operations**: Writes new values to writable variables (e.g., Pressure)
+- **Write Operations**: Writes new values to writable variables (e.g., iPhone product inspections)
+- **Method Calls**: Calls server methods (e.g., sound_the_alarm)
 - **Subscriptions**: Creates a subscription and monitors variable changes in real-time
 - **Browse Path Translation**: Translates browse paths to node IDs
 
@@ -62,13 +64,15 @@ The OPC UA client (`src/client.js`) demonstrates various OPC UA operations:
 1. Connects to the OPC UA server endpoint
 2. Creates an authenticated session
 3. Browses the server's address space
-4. Reads the `hello_world` variable
-5. Reads the current `Pressure` value
-6. Writes a new random `Pressure` value (0-2000)
-7. Verifies the write by reading the value back
-8. Creates a subscription to monitor `hello_world` changes for 10 seconds
-9. Translates a browse path to find a node ID
-10. Closes the session and disconnects
+4. Reads the `production_line_running` variable (production line name)
+5. Reads the `production_line_status` variable (status with timestamp)
+6. Reads the current `iphone_product_inspections` value
+7. Writes a new random `iphone_product_inspections` value (0-100,000)
+8. Verifies the write by reading the value back
+9. Calls the `sound_the_alarm` method with an alarm message
+10. Creates a subscription to monitor `production_line_status` changes for 10 seconds
+11. Translates a browse path to find a node ID
+12. Closes the session and disconnects
 
 ### Running the Client Locally
 
@@ -141,16 +145,17 @@ The server will be exposed on port `4334` and accessible at:
 
 ## Exposed Variables Reference
 
-| Node ID              | Data Type | Access     | Description                                     |
-| -------------------- | --------- | ---------- | ----------------------------------------------- |
-| `ns=1;s=hello_world` | String    | Read-only  | Updates every second with a timestamped message |
-| `ns=1;s=Pressure`    | Int32     | Read/Write | Pressure value in hPa (valid range: 0-2000)     |
+| Node ID                             | Data Type | Access     | Description                                                                                     |
+| ----------------------------------- | --------- | ---------- | ----------------------------------------------------------------------------------------------- |
+| `ns=1;s=production_line_running`    | String    | Read-only  | Production line name (e.g., "Assembly Line 2")                                                 |
+| `ns=1;s=production_line_status`      | String    | Read-only  | Production line status with timestamp that updates every second (e.g., "RUNNING \| 2026-01-26T...") |
+| `ns=1;s=iphone_product_inspections` | Int32     | Read/Write | iPhone product inspection count (valid range: 0-100,000)                                        |
 
 ## Methods Reference
 
-| Node ID       | Browse Name | Input                | Output                      | Description                                        |
-| ------------- | ----------- | -------------------- | --------------------------- | -------------------------------------------------- |
-| `ns=1;s=name` | Name        | String (name to say) | String (formatted response) | Returns a formatted message with the provided name |
+| Node ID                  | Browse Name   | Input                  | Output                | Description                                                                  |
+| ------------------------ | ------------- | ---------------------- | --------------------- | ---------------------------------------------------------------------------- |
+| `ns=1;s=sound_the_alarm` | SoundTheAlarm | String (alarm message) | String (alarm status) | Activates an alarm with the provided message and returns status confirmation |
 
 ## Project Structure
 
@@ -158,9 +163,7 @@ The server will be exposed on port `4334` and accessible at:
 opc-ua-server/
 ├── src/
 │   ├── server.js      # OPC UA server implementation
-│   ├── client.js      # OPC UA client implementation
-│   ├── server-write.js # Extended server with additional writable variables
-│   └── client-write.js # Extended client with additional write examples
+│   └── client.js      # OPC UA client implementation
 ├── Dockerfile         # Docker configuration
 ├── package.json       # Project dependencies and scripts
 └── Readme.md          # This file
