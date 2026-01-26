@@ -25,7 +25,6 @@ const client = OPCUAClient.create({
   endpointMustExist: false,
 });
 
-// const endpointUrl = 'opc.tcp://6.tcp.eu.ngrok.io:11853/UA/MyOPCServer';
 const endpointUrl = 'opc.tcp://0.0.0.0:4334/UA/MyOPCServer';
 
 async function timeout(ms) {
@@ -34,10 +33,9 @@ async function timeout(ms) {
 
 async function main() {
   try {
-    // step 1 : connect to
     await client.connect(endpointUrl);
 
-    console.log('connected !');
+    console.log(`Connected to ${endpointUrl}!`);
 
     // step 2 : createSession
     const session = await client.createSession({
@@ -46,7 +44,7 @@ async function main() {
       type: 1, // UserName
     });
 
-    console.log('session created !');
+    console.log(`Session created!\n`);
 
     // step 3 : browse
     const browseResult = await session.browse({
@@ -62,21 +60,20 @@ async function main() {
         ResultMask.TypeDefinition,
     });
 
-    console.log('references of RootFolder :');
-
-    for (const reference of browseResult.references) {
-      console.log('   -> ', reference.browseName.toString());
-    }
-
     // step 4 : read a variable with readVariableValue
     const helloWorldValue = await session.read({
       nodeId: 'ns=1;s=hello_world',
       attributeId: AttributeIds.Value,
     });
 
-    console.log('ns=1;s=hello_world ->', helloWorldValue.toString());
+    console.log('=== Example read ===');
+    console.log('Read variable "ns=1;s=hello_world" ->', helloWorldValue.value.value, '\n');
+    console.log('hello_world object ->', helloWorldValue.toString(), '\n');
+
     // Example 3: Write to Pressure variable
-    console.log('\n=== Writing to Pressure variable ===');
+    console.log('\n=== Example write ===');
+    console.log('=== Writing to Pressure variable ===');
+
     const pressureNodeId = 'ns=1;s=Pressure';
 
     // Read current value
@@ -84,17 +81,26 @@ async function main() {
       nodeId: pressureNodeId,
       attributeId: AttributeIds.Value,
     });
+
     console.log(`Current pressure: ${currentPressure.value.value} hPa`);
 
     // Write new value
-    const newPressure = 1020;
+    const newPressure = Math.floor(Math.random() * 2000);
+
     const writePressureResult = await session.write({
       nodeId: pressureNodeId,
       attributeId: AttributeIds.Value,
-      value: new Variant({ dataType: DataType.Int32, value: newPressure }),
+      value: {
+        value: {
+          dataType: DataType.Int32,
+          value: newPressure,
+        },
+      },
     });
 
-    console.log(`Write result: ${writePressureResult.toString()}`);
+    console.log(
+      `Writing new pressure value ${newPressure} with result: ${writePressureResult.toString()}`,
+    );
 
     // Read back to verify
     const updatedPressure = await session.read({
@@ -102,22 +108,74 @@ async function main() {
       attributeId: AttributeIds.Value,
     });
 
-    console.log(`Updated pressure: ${updatedPressure.value.value} hPa`);
+    console.log(`Reading back the pressure to verify the write`);
+    console.log(`Updated pressure: ${updatedPressure.value.value} hPa\n`);
 
-    //  find method id with browseName 'Name'
+    // Example: Call the Name method
+    console.log('\n=== Example method call ===');
+    console.log('=== Calling the Name method ===');
 
-    // const methodId = await findMethodId(session, 'ns=1;s=name', 'Name');
+    // Use the explicit device nodeId, or try to find it via browse path
+    let deviceNodeId = 'ns=1;s=MyDevice';
+    let deviceFound = true;
 
-    // console.log('methodId ->', methodId);
+    // Try to verify the device exists by reading its node class
+    try {
+      const deviceInfo = await session.read({
+        nodeId: deviceNodeId,
+        attributeId: AttributeIds.NodeClass,
+      });
+      console.log(`Using device object: ${deviceNodeId}`);
+    } catch (error) {
+      // If direct access fails, try to find it via browse path
+      console.log(`Direct nodeId access failed, trying browse path...`);
+      const deviceBrowsePath = makeBrowsePath('RootFolder', '/Objects/MyDevice');
+      const devicePathResult = await session.translateBrowsePath(deviceBrowsePath);
 
-    // const method = await session.call({
-    //   nodeId: methodId,
-    //   inputArguments: ['John'],
-    // });
+      if (devicePathResult.targets && devicePathResult.targets.length > 0) {
+        deviceNodeId = devicePathResult.targets[0].targetId;
+        console.log(`Found device object via browse path: ${deviceNodeId.toString()}`);
+      } else {
+        deviceFound = false;
+        console.log('Could not find device object to call method');
+      }
+    }
 
-    // console.log('method ->', method.outputArguments[0].value);
+    if (deviceFound) {
+      const methodNodeId = 'ns=1;s=name';
+      const inputName = 'John Doe';
 
-    // step 5: install a subscription and install a monitored item for 10 seconds
+      console.log(`Calling method: ${methodNodeId} with input: "${inputName}"`);
+
+      try {
+        const methodResult = await session.call({
+          objectId: deviceNodeId,
+          methodId: methodNodeId,
+          inputArguments: [
+            {
+              dataType: DataType.String,
+              value: inputName,
+            },
+          ],
+        });
+
+        if (methodResult.statusCode.isGood()) {
+          const outputMessage = methodResult.outputArguments[0].value;
+          console.log(`Method call successful!`);
+          console.log(`Input: "${inputName}"`);
+          console.log(`Output: "${outputMessage}"`);
+        } else {
+          console.log(`Method call failed with status: ${methodResult.statusCode.toString()}`);
+        }
+      } catch (error) {
+        console.log(`Error calling method: ${error.message}`);
+      }
+    }
+
+    console.log(
+      '\n=== Test subscription that will log the changes to the hello_world variable ===',
+    );
+    // install a subscription and install a monitored item for 10 seconds
     const subscription = ClientSubscription.create(session, {
       requestedPublishingInterval: 1000,
       requestedLifetimeCount: 100,
@@ -129,7 +187,7 @@ async function main() {
 
     subscription
       .on('started', function () {
-        console.log('subscription started - subscriptionId=', subscription.subscriptionId);
+        console.log('Subscription started - subscriptionId=', subscription.subscriptionId);
       })
       .on('keepalive', function () {
         console.log('keepalive');

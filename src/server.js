@@ -8,15 +8,6 @@ import {
 } from 'node-opcua';
 import { LogLevel, setLogLevel } from 'node-opcua-debug';
 
-// const server = new OPCUAServer({});
-// await server.start();
-
-// console.log("Server is now listening ... ( press CTRL+C to stop) ");
-// await new Promise((resolve) => process.once("SIGINT", resolve));
-
-// await server.shutdown();
-// Let's create an instance of OPCUAServer
-
 // Set to most verbose level
 setLogLevel(LogLevel.Debug);
 
@@ -42,9 +33,9 @@ const server = new OPCUAServer({
   //   // SecurityPolicy.Basic256Sha256,
   // ],
   buildInfo: {
-    productName: 'MySampleServer1',
+    productName: 'OPC Test Server',
     buildNumber: '7658',
-    buildDate: new Date(2025, 6, 1),
+    buildDate: new Date(),
   },
 });
 
@@ -57,6 +48,7 @@ const namespace = addressSpace.getOwnNamespace();
 const device = namespace.addObject({
   organizedBy: addressSpace.rootFolder.objects,
   browseName: 'MyDevice',
+  nodeId: 'ns=1;s=MyDevice', // Explicitly set nodeId for easier access
 });
 
 // add some variables
@@ -71,10 +63,13 @@ const uaVariable1 = namespace.addVariable({
   dataType: 'String',
 });
 
-// update variable1 every 500 ms
+// This will update the variable every 500ms to help with multiple test reads from the client
 const timerId = setInterval(() => {
   uaVariable1.setValueFromSource(
-    new Variant({ dataType: DataType.String, value: `iOS Hello World ${Math.random()}` }),
+    new Variant({
+      dataType: DataType.String,
+      value: `iOS Hello World ${Math.random()}, updated at ${new Date().toISOString()}`,
+    }),
   );
 }, 1000);
 
@@ -83,7 +78,7 @@ addressSpace.registerShutdownTask(() => {
 });
 
 const method = namespace.addMethod(device, {
-  nodeId: 's=name',
+  nodeId: 'ns=1;s=name',
   browseName: 'Name',
 
   inputArguments: [
@@ -99,7 +94,7 @@ const method = namespace.addMethod(device, {
       name: 'YourName',
       description: { text: 'The name the server said' },
       dataType: DataType.String,
-      valueRank: 1,
+      valueRank: -1, // -1 means scalar (single value), not an array
     },
   ],
 });
@@ -114,7 +109,7 @@ method.bindMethod((inputArguments, context, callback) => {
     outputArguments: [
       {
         dataType: DataType.String,
-        arrayType: VariantArrayType.Array,
+        arrayType: VariantArrayType.Scalar, // Scalar, not Array
         value: `Your name is ${theName}`,
       },
     ],
