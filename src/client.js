@@ -98,22 +98,30 @@ async function main() {
 
     console.log(`Current iPhone product inspections: ${currentInspections.value.value}`);
 
-    // Write new value
-    const newInspections = Math.floor(Math.random() * 100000);
+    // Write new value as JSON
+    const inspectionData = {
+      inspectionId: Math.floor(Math.random() * 10000),
+      timestamp: new Date().toISOString(),
+      status: 'PASSED',
+      inspector: 'Quality Control Team A',
+      defects: [],
+    };
+
+    const newInspections = JSON.stringify(inspectionData);
 
     const writeInspectionsResult = await session.write({
       nodeId: inspectionsNodeId,
       attributeId: AttributeIds.Value,
       value: {
         value: {
-          dataType: DataType.Int32,
+          dataType: DataType.String,
           value: newInspections,
         },
       },
     });
 
     console.log(
-      `Writing new inspection count ${newInspections} with result: ${writeInspectionsResult.toString()}`,
+      `Writing new inspection data: ${newInspections} with result: ${writeInspectionsResult.toString()}`,
     );
 
     // Read back to verify
@@ -122,55 +130,8 @@ async function main() {
       attributeId: AttributeIds.Value,
     });
 
-    console.log(`Reading back the inspection count to verify the write`);
+    console.log(`Reading back the inspection data to verify the write`);
     console.log(`Updated iPhone product inspections: ${updatedInspections.value.value}\n`);
-
-    // Example: Write to iPhone defect name variable
-    console.log('=== Writing to iPhone defect name variable ===');
-
-    const defectNameNodeId = 'ns=1;s=iphone_defect_name';
-
-    // Read current value
-    const currentDefectName = await session.read({
-      nodeId: defectNameNodeId,
-      attributeId: AttributeIds.Value,
-    });
-
-    console.log(`Current iPhone defect name: ${currentDefectName.value.value}`);
-
-    // Write new value
-    const defectNames = [
-      'Screen Burn',
-      'Battery Failure',
-      'Camera Malfunction',
-      'Button Defect',
-      'Water Damage',
-    ];
-    const newDefectName = defectNames[Math.floor(Math.random() * defectNames.length)];
-
-    const writeDefectNameResult = await session.write({
-      nodeId: defectNameNodeId,
-      attributeId: AttributeIds.Value,
-      value: {
-        value: {
-          dataType: DataType.String,
-          value: newDefectName,
-        },
-      },
-    });
-
-    console.log(
-      `Writing new defect name "${newDefectName}" with result: ${writeDefectNameResult.toString()}`,
-    );
-
-    // Read back to verify
-    const updatedDefectName = await session.read({
-      nodeId: defectNameNodeId,
-      attributeId: AttributeIds.Value,
-    });
-
-    console.log(`Reading back the defect name to verify the write`);
-    console.log(`Updated iPhone defect name: ${updatedDefectName.value.value}\n`);
 
     // Example: Call the sound_the_alarm method
     console.log('\n=== Example method call ===');

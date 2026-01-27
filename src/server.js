@@ -158,54 +158,21 @@ method.bindMethod((inputArguments, context, callback) => {
   callback(null, callMethodResult);
 });
 
-// iPhone product inspections counter (writable integer variable with validation)
-let iphoneProductInspections = 0;
+// iPhone product inspections (writable string variable - accepts JSON)
+let iphoneProductInspections = '{}';
 
 namespace.addVariable({
   componentOf: device,
   browseName: 'iPhoneProductInspections',
   nodeId: 'ns=1;s=iphone_product_inspections',
-  dataType: 'Int32',
-  minimumSamplingInterval: 100,
-  value: {
-    get: () => new Variant({ dataType: DataType.Int32, value: iphoneProductInspections }),
-    set: (variant) => {
-      const newInspections = parseInt(variant.value);
-      if (newInspections >= 0 && newInspections <= 100000) {
-        iphoneProductInspections = newInspections;
-        console.log(`iPhone product inspections count set to: ${iphoneProductInspections}`);
-        return StatusCodes.Good;
-      } else {
-        console.log(`Invalid inspection count: ${newInspections} (must be between 0 and 100000)`);
-        return StatusCodes.BadOutOfRange;
-      }
-    },
-  },
-});
-
-// iPhone defect name (writable string variable with validation)
-let iphoneDefectName = 'Screen Crack';
-
-namespace.addVariable({
-  componentOf: device,
-  browseName: 'iPhoneDefectName',
-  nodeId: 'ns=1;s=iphone_defect_name',
   dataType: 'String',
   minimumSamplingInterval: 100,
   value: {
-    get: () => new Variant({ dataType: DataType.String, value: iphoneDefectName }),
+    get: () => new Variant({ dataType: DataType.String, value: iphoneProductInspections }),
     set: (variant) => {
-      const newDefectName = String(variant.value);
-      if (newDefectName.length > 0 && newDefectName.length <= 100) {
-        iphoneDefectName = newDefectName;
-        console.log(`iPhone defect name set to: ${iphoneDefectName}`);
-        return StatusCodes.Good;
-      } else {
-        console.log(
-          `Invalid defect name length: ${newDefectName.length} (must be between 1 and 100 characters)`,
-        );
-        return StatusCodes.BadOutOfRange;
-      }
+      iphoneProductInspections = String(variant.value);
+      console.log(`iPhone product inspections set to: ${iphoneProductInspections}`);
+      return StatusCodes.Good;
     },
   },
 });
