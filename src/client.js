@@ -39,9 +39,9 @@ async function main() {
 
     // step 2 : createSession
     const session = await client.createSession({
-      userName: 'admin',
-      password: 'securepassword',
-      type: 1, // UserName
+      // userName: 'admin',
+      // password: 'securepassword?',
+      // type: 1, // UserName
     });
 
     console.log(`Session created!\n`);
@@ -62,20 +62,27 @@ async function main() {
 
     // step 4 : read variables with readVariableValue
     console.log('=== Example read ===');
-    
+
     const productionLineValue = await session.read({
       nodeId: 'ns=1;s=production_line_running',
       attributeId: AttributeIds.Value,
     });
 
-    console.log('Read variable "ns=1;s=production_line_running" ->', productionLineValue.value.value);
+    console.log(
+      'Read variable "ns=1;s=production_line_running" ->',
+      productionLineValue.value.value,
+    );
 
     const productionLineStatusValue = await session.read({
       nodeId: 'ns=1;s=production_line_status',
       attributeId: AttributeIds.Value,
     });
 
-    console.log('Read variable "ns=1;s=production_line_status" ->', productionLineStatusValue.value.value, '\n');
+    console.log(
+      'Read variable "ns=1;s=production_line_status" ->',
+      productionLineStatusValue.value.value,
+      '\n',
+    );
 
     // Example 3: Write to iPhone product inspections variable
     console.log('\n=== Example write ===');
@@ -117,6 +124,53 @@ async function main() {
 
     console.log(`Reading back the inspection count to verify the write`);
     console.log(`Updated iPhone product inspections: ${updatedInspections.value.value}\n`);
+
+    // Example: Write to iPhone defect name variable
+    console.log('=== Writing to iPhone defect name variable ===');
+
+    const defectNameNodeId = 'ns=1;s=iphone_defect_name';
+
+    // Read current value
+    const currentDefectName = await session.read({
+      nodeId: defectNameNodeId,
+      attributeId: AttributeIds.Value,
+    });
+
+    console.log(`Current iPhone defect name: ${currentDefectName.value.value}`);
+
+    // Write new value
+    const defectNames = [
+      'Screen Burn',
+      'Battery Failure',
+      'Camera Malfunction',
+      'Button Defect',
+      'Water Damage',
+    ];
+    const newDefectName = defectNames[Math.floor(Math.random() * defectNames.length)];
+
+    const writeDefectNameResult = await session.write({
+      nodeId: defectNameNodeId,
+      attributeId: AttributeIds.Value,
+      value: {
+        value: {
+          dataType: DataType.String,
+          value: newDefectName,
+        },
+      },
+    });
+
+    console.log(
+      `Writing new defect name "${newDefectName}" with result: ${writeDefectNameResult.toString()}`,
+    );
+
+    // Read back to verify
+    const updatedDefectName = await session.read({
+      nodeId: defectNameNodeId,
+      attributeId: AttributeIds.Value,
+    });
+
+    console.log(`Reading back the defect name to verify the write`);
+    console.log(`Updated iPhone defect name: ${updatedDefectName.value.value}\n`);
 
     // Example: Call the sound_the_alarm method
     console.log('\n=== Example method call ===');

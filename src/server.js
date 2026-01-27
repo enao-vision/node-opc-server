@@ -11,22 +11,22 @@ import { LogLevel, setLogLevel } from 'node-opcua-debug';
 // Set to most verbose level
 setLogLevel(LogLevel.Debug);
 
-const userManager = {
-  isValidUser: function (userName, password) {
-    if (userName === 'admin' && password === 'securepassword') {
-      return true;
-    }
+// const userManager = {
+//   isValidUser: function (userName, password) {
+//     if (userName === 'admin' && password === 'securepassword') {
+//       return true;
+//     }
 
-    return false;
-  },
-};
+//     return false;
+//   },
+// };
 
 const server = new OPCUAServer({
   hostname: '0.0.0.0',
   port: 4334, // the port of the listening socket of the server
   resourcePath: '/UA/MyOPCServer', // this path will be added to the endpoint resource name
-  userManager: userManager,
-  allowAnonymous: false,
+  // userManager: userManager,
+  allowAnonymous: true,
   // securityPolicies: [
   //   SecurityPolicy.None,
   //   // SecurityPolicy.Basic128Rsa15,
@@ -52,7 +52,13 @@ const device = namespace.addObject({
 });
 
 // Production line name variable (read-only)
-const productionLineNames = ['Assembly Line 1', 'Assembly Line 2', 'Assembly Line 3', 'Assembly Line 4', 'Assembly Line 5'];
+const productionLineNames = [
+  'Assembly Line 1',
+  'Assembly Line 2',
+  'Assembly Line 3',
+  'Assembly Line 4',
+  'Assembly Line 5',
+];
 let currentLineIndex = 0;
 
 const productionLineRunning = namespace.addVariable({
@@ -77,29 +83,29 @@ const productionLineStatus = namespace.addVariable({
 const timerId = setInterval(() => {
   // Update production line name (changes less frequently)
   const lineName = productionLineNames[currentLineIndex];
-  
+
   // Update production line status with timestamp
   const status = productionLineStatuses[currentStatusIndex];
   const timestamp = new Date().toISOString();
   const statusMessage = `${status} | ${timestamp}`;
-  
+
   productionLineRunning.setValueFromSource(
     new Variant({
       dataType: DataType.String,
       value: lineName,
     }),
   );
-  
+
   productionLineStatus.setValueFromSource(
     new Variant({
       dataType: DataType.String,
       value: statusMessage,
     }),
   );
-  
+
   // Cycle through statuses (changes every second)
   currentStatusIndex = (currentStatusIndex + 1) % productionLineStatuses.length;
-  
+
   // Cycle through line names (changes every 5 seconds)
   if (currentStatusIndex === 0) {
     currentLineIndex = (currentLineIndex + 1) % productionLineNames.length;
@@ -171,6 +177,33 @@ namespace.addVariable({
         return StatusCodes.Good;
       } else {
         console.log(`Invalid inspection count: ${newInspections} (must be between 0 and 100000)`);
+        return StatusCodes.BadOutOfRange;
+      }
+    },
+  },
+});
+
+// iPhone defect name (writable string variable with validation)
+let iphoneDefectName = 'Screen Crack';
+
+namespace.addVariable({
+  componentOf: device,
+  browseName: 'iPhoneDefectName',
+  nodeId: 'ns=1;s=iphone_defect_name',
+  dataType: 'String',
+  minimumSamplingInterval: 100,
+  value: {
+    get: () => new Variant({ dataType: DataType.String, value: iphoneDefectName }),
+    set: (variant) => {
+      const newDefectName = String(variant.value);
+      if (newDefectName.length > 0 && newDefectName.length <= 100) {
+        iphoneDefectName = newDefectName;
+        console.log(`iPhone defect name set to: ${iphoneDefectName}`);
+        return StatusCodes.Good;
+      } else {
+        console.log(
+          `Invalid defect name length: ${newDefectName.length} (must be between 1 and 100 characters)`,
+        );
         return StatusCodes.BadOutOfRange;
       }
     },

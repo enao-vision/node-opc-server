@@ -15,16 +15,14 @@ The OPC UA server (`src/server.js`) provides the following functionality:
 
 ### Features
 
-- **Authentication**: Requires username/password authentication (no anonymous access)
-
-  - Username: `admin`
-  - Password: `securepassword`
+- **Authentication**: Server allows anonymous connections
 
 - **Exposed Variables**:
 
   - `ns=1;s=production_line_running` (String): A read-only variable that returns the name of the production line (e.g., "Assembly Line 2")
   - `ns=1;s=production_line_status` (String): A read-only variable that automatically updates every second with the production line status (RUNNING, STOPPED, MAINTENANCE, IDLE, ERROR) alongside the current timestamp
   - `ns=1;s=iphone_product_inspections` (Int32): A writable variable representing iPhone product inspection count with validation (accepts values between 0 and 100,000)
+  - `ns=1;s=iphone_defect_name` (String): A writable variable representing the iPhone defect name with validation (accepts strings between 1 and 100 characters)
 
 - **Methods**:
 
@@ -51,10 +49,10 @@ The OPC UA client (`src/client.js`) demonstrates various OPC UA operations:
 
 ### Features
 
-- **Connection & Authentication**: Connects to the server and authenticates using credentials
+- **Connection**: Connects to the server
 - **Browse Operations**: Browses the server's address space to discover available nodes
 - **Read Operations**: Reads variable values from the server
-- **Write Operations**: Writes new values to writable variables (e.g., iPhone product inspections)
+- **Write Operations**: Writes new values to writable variables (e.g., iPhone product inspections count and defect name)
 - **Method Calls**: Calls server methods (e.g., sound_the_alarm)
 - **Subscriptions**: Creates a subscription and monitors variable changes in real-time
 - **Browse Path Translation**: Translates browse paths to node IDs
@@ -62,17 +60,20 @@ The OPC UA client (`src/client.js`) demonstrates various OPC UA operations:
 ### Client Workflow
 
 1. Connects to the OPC UA server endpoint
-2. Creates an authenticated session
+2. Creates a session
 3. Browses the server's address space
 4. Reads the `production_line_running` variable (production line name)
 5. Reads the `production_line_status` variable (status with timestamp)
 6. Reads the current `iphone_product_inspections` value
 7. Writes a new random `iphone_product_inspections` value (0-100,000)
 8. Verifies the write by reading the value back
-9. Calls the `sound_the_alarm` method with an alarm message
-10. Creates a subscription to monitor `production_line_status` changes for 10 seconds
-11. Translates a browse path to find a node ID
-12. Closes the session and disconnects
+9. Reads the current `iphone_defect_name` value
+10. Writes a new `iphone_defect_name` value
+11. Verifies the write by reading the value back
+12. Calls the `sound_the_alarm` method with an alarm message
+13. Creates a subscription to monitor `production_line_status` changes for 10 seconds
+14. Translates a browse path to find a node ID
+15. Closes the session and disconnects
 
 ### Running the Client Locally
 
@@ -145,11 +146,12 @@ The server will be exposed on port `4334` and accessible at:
 
 ## Exposed Variables Reference
 
-| Node ID                             | Data Type | Access     | Description                                                                                     |
-| ----------------------------------- | --------- | ---------- | ----------------------------------------------------------------------------------------------- |
-| `ns=1;s=production_line_running`    | String    | Read-only  | Production line name (e.g., "Assembly Line 2")                                                 |
-| `ns=1;s=production_line_status`      | String    | Read-only  | Production line status with timestamp that updates every second (e.g., "RUNNING \| 2026-01-26T...") |
-| `ns=1;s=iphone_product_inspections` | Int32     | Read/Write | iPhone product inspection count (valid range: 0-100,000)                                        |
+| Node ID                             | Data Type | Access     | Description                                                                                         |
+| ----------------------------------- | --------- | ---------- | --------------------------------------------------------------------------------------------------- |
+| `ns=1;s=production_line_running`    | String    | Read-only  | Production line name (e.g., "Assembly Line 2")                                                      |
+| `ns=1;s=production_line_status`     | String    | Read-only  | Production line status with timestamp that updates every second (e.g., "RUNNING \| 2026-01-26T...") |
+| `ns=1;s=iphone_product_inspections` | Int32     | Read/Write | iPhone product inspection count (valid range: 0-100,000)                                            |
+| `ns=1;s=iphone_defect_name`         | String    | Read/Write | iPhone defect name (valid length: 1-100 characters)                                                   |
 
 ## Methods Reference
 
