@@ -1,10 +1,9 @@
 import {
   DataType,
   OPCUAServer,
-  SecurityPolicy,
   StatusCodes,
   Variant,
-  VariantArrayType,
+  VariantArrayType
 } from 'node-opcua';
 import { LogLevel, setLogLevel } from 'node-opcua-debug';
 
@@ -139,10 +138,40 @@ const method = namespace.addMethod(device, {
 });
 
 method.bindMethod((inputArguments, context, callback) => {
-  const alarmMessage = inputArguments[0].value;
-  const timestamp = new Date().toISOString();
+  const receiveTime = Date.now();
+  const receiveTimeISO = new Date().toISOString();
+  const inputValue = inputArguments[0].value;
+  
+  // Try to extract client timestamp and message from JSON payload
+  let alarmMessage = inputValue;
+  let clientTimestamp = null;
+  let payloadLatency = null;
+  
+  try {
+    // Check if the message is JSON with timestamp
+    if (typeof inputValue === 'string' && inputValue.startsWith('{')) {
+      const parsed = JSON.parse(inputValue);
+      if (parsed.timestamp) {
+        clientTimestamp = new Date(parsed.timestamp).getTime();
+        payloadLatency = receiveTime - clientTimestamp;
+        alarmMessage = parsed.message || inputValue; // Use message field if available
+      }
+    }
+  } catch (e) {
+    // Not JSON or parse error, use original value
+    alarmMessage = inputValue;
+  }
 
-  console.log(`ALARM TRIGGERED: ${alarmMessage} at ${timestamp}`);
+  console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
+  console.log(`  Receive Time: ${receiveTimeISO}`);
+  console.log(`  Alarm Message: ${alarmMessage}`);
+  if (payloadLatency !== null) {
+    console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
+  } else {
+    console.log(`  Payload Latency: N/A (no client timestamp in payload)`);
+  }
+
+  const timestamp = new Date().toISOString();
 
   const callMethodResult = {
     statusCode: StatusCodes.Good,
@@ -170,8 +199,35 @@ namespace.addVariable({
   value: {
     get: () => new Variant({ dataType: DataType.String, value: iphoneProductInspections }),
     set: (variant) => {
-      iphoneProductInspections = String(variant.value);
-      console.log(`iPhone product inspections set to: ${iphoneProductInspections}`);
+      const receiveTime = Date.now();
+      const receiveTimeISO = new Date().toISOString();
+      const payload = String(variant.value);
+      
+      // Try to extract client timestamp from JSON payload
+      let clientTimestamp = null;
+      let payloadLatency = null;
+      
+      try {
+        const parsed = JSON.parse(payload);
+        if (parsed.timestamp) {
+          clientTimestamp = new Date(parsed.timestamp).getTime();
+          payloadLatency = receiveTime - clientTimestamp;
+        }
+      } catch (e) {
+        // Not JSON or no timestamp field, that's fine
+      }
+      
+      iphoneProductInspections = payload;
+      
+      console.log(`\n[PAYLOAD RECEIVED] Write Operation: iPhoneProductInspections`);
+      console.log(`  Receive Time: ${receiveTimeISO}`);
+      console.log(`  Payload: ${payload.substring(0, 100)}${payload.length > 100 ? '...' : ''}`);
+      if (payloadLatency !== null) {
+        console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
+      } else {
+        console.log(`  Payload Latency: N/A (no timestamp in payload - add "timestamp": "${new Date().toISOString()}" to JSON)`);
+      }
+      
       return StatusCodes.Good;
     },
   },
