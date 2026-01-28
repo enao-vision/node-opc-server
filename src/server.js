@@ -15,14 +15,34 @@ setLogLevel(LogLevel.Debug);
 // Using GPIO pin 18 (physical pin 12) - change if needed
 // Set to null if not running on Raspberry Pi to avoid errors
 let ledPin = null;
+
+// Helper function to safely control LED
+function setLED(state) {
+  if (!ledPin) return;
+  try {
+    ledPin.writeSync(state ? 1 : 0);
+    return true;
+  } catch (error) {
+    console.log(`  ⚠️ Error controlling LED: ${error.message}`);
+    return false;
+  }
+}
+
 try {
+  // Try to initialize GPIO pin 18
   ledPin = new Gpio(18, 'out'); // GPIO 18, output mode
-  console.log('✓ GPIO LED initialized on pin 18');
-  // Start with LED off
+  // Test write to ensure pin is accessible
   ledPin.writeSync(0);
+  console.log('✓ GPIO LED initialized on pin 18');
 } catch (error) {
-  console.log('⚠️ GPIO not available (not running on Raspberry Pi or permissions issue):', error.message);
+  console.log('⚠️ GPIO initialization failed:', error.message);
+  console.log('   Possible causes:');
+  console.log('   - Not running on Raspberry Pi');
+  console.log('   - GPIO pin already in use');
+  console.log('   - Insufficient permissions (try: sudo)');
+  console.log('   - Invalid GPIO pin number');
   console.log('   LED control will be disabled.');
+  ledPin = null;
 }
 
 // const userManager = {
@@ -131,7 +151,7 @@ addressSpace.registerShutdownTask(() => {
   // Cleanup GPIO on shutdown
   if (ledPin) {
     try {
-      ledPin.writeSync(0); // Turn off LED
+      setLED(false); // Turn off LED
       ledPin.unexport(); // Unexport GPIO pin
       console.log('✓ GPIO LED cleaned up');
     } catch (error) {
@@ -281,49 +301,29 @@ namespace.addVariable({
               defectMessage += `\n    Defects:\n    ${defectList}`;
             }
             // Turn on LED when defects are detected
-            if (ledPin) {
-              try {
-                ledPin.writeSync(1); // Turn on LED (HIGH)
-                console.log('  🔴 LED TURNED ON (defects detected)');
-              } catch (error) {
-                console.log('  ⚠️ Error turning on LED:', error.message);
-              }
+            if (setLED(true)) {
+              console.log('  🔴 LED TURNED ON (defects detected)');
             }
           } else {
             defectMessage = `✅ NO DEFECTS: All inspections passed. Everything is fine.`;
             // Turn off LED when no defects
-            if (ledPin) {
-              try {
-                ledPin.writeSync(0); // Turn off LED (LOW)
-                console.log('  🟢 LED TURNED OFF (no defects)');
-              } catch (error) {
-                console.log('  ⚠️ Error turning off LED:', error.message);
-              }
+            if (setLED(false)) {
+              console.log('  🟢 LED TURNED OFF (no defects)');
             }
           }
         } else if (parsed.defects !== undefined) {
           // Defects field exists but is not an array
           defectMessage = `⚠️ WARNING: Defects field exists but is not an array.`;
           // Turn off LED for warnings (assume no critical defects)
-          if (ledPin) {
-            try {
-              ledPin.writeSync(0);
-              console.log('  🟢 LED TURNED OFF (warning, no critical defects)');
-            } catch (error) {
-              console.log('  ⚠️ Error turning off LED:', error.message);
-            }
+          if (setLED(false)) {
+            console.log('  🟢 LED TURNED OFF (warning, no critical defects)');
           }
         } else {
           // No defects field - assume everything is fine
           defectMessage = `✅ NO DEFECTS: No defects field found. Everything is fine.`;
           // Turn off LED when no defects
-          if (ledPin) {
-            try {
-              ledPin.writeSync(0);
-              console.log('  🟢 LED TURNED OFF (no defects)');
-            } catch (error) {
-              console.log('  ⚠️ Error turning off LED:', error.message);
-            }
+          if (setLED(false)) {
+            console.log('  🟢 LED TURNED OFF (no defects)');
           }
         }
         
