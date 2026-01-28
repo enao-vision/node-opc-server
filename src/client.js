@@ -138,12 +138,22 @@ async function main() {
     for (let i = 0; i < writeCount; i++) {
       // Write new value as JSON (include timestamp for latency measurement)
       const clientSendTime = new Date().toISOString();
+      
+      // Alternate between inspections with and without defects for testing
+      const hasDefects = i % 3 === 0; // Every 3rd inspection has defects
+      
       const inspectionData = {
         inspectionId: Math.floor(Math.random() * 10000),
         timestamp: clientSendTime, // Server will use this to calculate payload latency
-        status: 'PASSED',
+        status: hasDefects ? 'FAILED' : 'PASSED',
         inspector: 'Quality Control Team A',
-        defects: [],
+        defects: hasDefects
+          ? [
+              'Scratch on screen',
+              'Button misalignment',
+              'Camera lens smudge',
+            ]
+          : [], // Empty array means no defects
       };
 
       const newInspections = JSON.stringify(inspectionData);

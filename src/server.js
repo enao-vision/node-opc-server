@@ -138,63 +138,63 @@ const method = namespace.addMethod(device, {
 });
 
 method.bindMethod((inputArguments, context, callback) => {
-  const receiveTime = Date.now(); // UTC milliseconds since epoch
-  const receiveTimeISO = new Date().toISOString();
+  // const receiveTime = Date.now(); // UTC milliseconds since epoch
+  // const receiveTimeISO = new Date().toISOString();
   const inputValue = inputArguments[0].value;
   
   // Try to extract client timestamp and message from JSON payload
   let alarmMessage = inputValue;
-  let clientTimestamp = null;
-  let payloadLatency = null;
+  // let clientTimestamp = null;
+  // let payloadLatency = null;
   
-      try {
-        // Check if the message is JSON with timestamp
-        if (typeof inputValue === 'string' && inputValue.startsWith('{')) {
-          const parsed = JSON.parse(inputValue);
-          if (parsed.timestamp) {
-            // Parse timestamp string to UTC milliseconds
-            const parsedDate = new Date(parsed.timestamp);
-            clientTimestamp = parsedDate.getTime();
-            
-            // Debug: Show what we're comparing
-            if (isNaN(clientTimestamp)) {
-              console.log(`  [DEBUG] Failed to parse timestamp: "${parsed.timestamp}"`);
-            } else {
-              // Validate timestamp is reasonable (not NaN, and within last hour)
-              payloadLatency = receiveTime - clientTimestamp;
-              
-              // Validate latency is reasonable (should be positive and less than 60 seconds for local network)
-              if (payloadLatency < 0) {
-                console.log(`  [WARNING] Negative latency (${payloadLatency.toFixed(2)} ms) - client timestamp is in the future!`);
-                console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-                console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-                payloadLatency = null;
-              } else if (payloadLatency > 60000) {
-                console.log(`  [WARNING] Latency too high (${payloadLatency.toFixed(2)} ms = ${(payloadLatency/1000).toFixed(2)}s) - possible timezone issue`);
-                console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-                console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-                payloadLatency = null;
-              }
-            }
-            alarmMessage = parsed.message || inputValue; // Use message field if available
-          }
-        }
-      } catch (e) {
-        // Not JSON or parse error, use original value
-        alarmMessage = inputValue;
-      }
+  try {
+    // Check if the message is JSON with timestamp
+    if (typeof inputValue === 'string' && inputValue.startsWith('{')) {
+      const parsed = JSON.parse(inputValue);
+      // if (parsed.timestamp) {
+      //   // Parse timestamp string to UTC milliseconds
+      //   const parsedDate = new Date(parsed.timestamp);
+      //   clientTimestamp = parsedDate.getTime();
+      //   
+      //   // Debug: Show what we're comparing
+      //   if (isNaN(clientTimestamp)) {
+      //     console.log(`  [DEBUG] Failed to parse timestamp: "${parsed.timestamp}"`);
+      //   } else {
+      //     // Validate timestamp is reasonable (not NaN, and within last hour)
+      //     payloadLatency = receiveTime - clientTimestamp;
+      //     
+      //     // Validate latency is reasonable (should be positive and less than 60 seconds for local network)
+      //     if (payloadLatency < 0) {
+      //       console.log(`  [WARNING] Negative latency (${payloadLatency.toFixed(2)} ms) - client timestamp is in the future!`);
+      //       console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
+      //       console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
+      //       payloadLatency = null;
+      //     } else if (payloadLatency > 60000) {
+      //       console.log(`  [WARNING] Latency too high (${payloadLatency.toFixed(2)} ms = ${(payloadLatency/1000).toFixed(2)}s) - possible timezone issue`);
+      //       console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
+      //       console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
+      //       payloadLatency = null;
+      //     }
+      //   }
+      // }
+      alarmMessage = parsed.message || inputValue; // Use message field if available
+    }
+  } catch (e) {
+    // Not JSON or parse error, use original value
+    alarmMessage = inputValue;
+  }
 
   console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
-  console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-  if (clientTimestamp !== null) {
-    console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-  }
+  // console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
+  // if (clientTimestamp !== null) {
+  //   console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
+  // }
   console.log(`  Alarm Message: ${alarmMessage}`);
-  if (payloadLatency !== null && payloadLatency >= 0) {
-    console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
-  } else {
-    console.log(`  Payload Latency: N/A (no valid client timestamp in payload)`);
-  }
+  // if (payloadLatency !== null && payloadLatency >= 0) {
+  //   console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
+  // } else {
+  //   console.log(`  Payload Latency: N/A (no valid client timestamp in payload)`);
+  // }
 
   const timestamp = new Date().toISOString();
 
@@ -224,59 +224,96 @@ namespace.addVariable({
   value: {
     get: () => new Variant({ dataType: DataType.String, value: iphoneProductInspections }),
     set: (variant) => {
-      const receiveTime = Date.now(); // UTC milliseconds since epoch
-      const receiveTimeISO = new Date().toISOString();
+      // const receiveTime = Date.now(); // UTC milliseconds since epoch
+      // const receiveTimeISO = new Date().toISOString();
       const payload = String(variant.value);
       
       // Try to extract client timestamp from JSON payload
-      let clientTimestamp = null;
-      let payloadLatency = null;
+      // let clientTimestamp = null;
+      // let payloadLatency = null;
+      
+      let parsed = null;
+      let hasDefects = false;
+      let defectCount = 0;
+      let defectMessage = '';
       
       try {
-        const parsed = JSON.parse(payload);
-        if (parsed.timestamp) {
-          // Parse timestamp string to UTC milliseconds
-          const parsedDate = new Date(parsed.timestamp);
-          clientTimestamp = parsedDate.getTime();
+        parsed = JSON.parse(payload);
+        
+        // Check for defects
+        if (parsed.defects && Array.isArray(parsed.defects)) {
+          defectCount = parsed.defects.length;
+          hasDefects = defectCount > 0;
           
-          // Debug: Show what we're comparing
-          if (isNaN(clientTimestamp)) {
-            console.log(`  [DEBUG] Failed to parse timestamp: "${parsed.timestamp}"`);
-          } else {
-            // Validate timestamp is reasonable (not NaN, and within last hour)
-            payloadLatency = receiveTime - clientTimestamp;
-            
-            // Validate latency is reasonable (should be positive and less than 60 seconds for local network)
-            if (payloadLatency < 0) {
-              console.log(`  [WARNING] Negative latency (${payloadLatency.toFixed(2)} ms) - client timestamp is in the future!`);
-              console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-              console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-              payloadLatency = null;
-            } else if (payloadLatency > 60000) {
-              console.log(`  [WARNING] Latency too high (${payloadLatency.toFixed(2)} ms = ${(payloadLatency/1000).toFixed(2)}s) - possible timezone issue`);
-              console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-              console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-              payloadLatency = null;
+          if (hasDefects) {
+            defectMessage = `⚠️ DEFECTS DETECTED: ${defectCount} defect(s) found in inspection ID ${parsed.inspectionId || 'N/A'}`;
+            if (parsed.defects.length > 0) {
+              const defectList = parsed.defects.map((d, i) => {
+                if (typeof d === 'string') return `${i + 1}. ${d}`;
+                if (typeof d === 'object' && d.description) return `${i + 1}. ${d.description}`;
+                return `${i + 1}. ${JSON.stringify(d)}`;
+              }).join('\n    ');
+              defectMessage += `\n    Defects:\n    ${defectList}`;
             }
+          } else {
+            defectMessage = `✅ NO DEFECTS: All inspections passed. Everything is fine.`;
           }
+        } else if (parsed.defects !== undefined) {
+          // Defects field exists but is not an array
+          defectMessage = `⚠️ WARNING: Defects field exists but is not an array.`;
+        } else {
+          // No defects field - assume everything is fine
+          defectMessage = `✅ NO DEFECTS: No defects field found. Everything is fine.`;
         }
+        
+        // Parse timestamp for latency calculation
+        // if (parsed.timestamp) {
+        //   // Parse timestamp string to UTC milliseconds
+        //   const parsedDate = new Date(parsed.timestamp);
+        //   clientTimestamp = parsedDate.getTime();
+        //   
+        //   // Debug: Show what we're comparing
+        //   if (isNaN(clientTimestamp)) {
+        //     console.log(`  [DEBUG] Failed to parse timestamp: "${parsed.timestamp}"`);
+        //   } else {
+        //     // Validate timestamp is reasonable (not NaN, and within last hour)
+        //     payloadLatency = receiveTime - clientTimestamp;
+        //     
+        //     // Validate latency is reasonable (should be positive and less than 60 seconds for local network)
+        //     if (payloadLatency < 0) {
+        //       console.log(`  [WARNING] Negative latency (${payloadLatency.toFixed(2)} ms) - client timestamp is in the future!`);
+        //       console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
+        //       console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
+        //       payloadLatency = null;
+        //     } else if (payloadLatency > 60000) {
+        //       console.log(`  [WARNING] Latency too high (${payloadLatency.toFixed(2)} ms = ${(payloadLatency/1000).toFixed(2)}s) - possible timezone issue`);
+        //       console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
+        //       console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
+        //       payloadLatency = null;
+        //     }
+        //   }
+        // }
       } catch (e) {
-        // Not JSON or no timestamp field, that's fine
+        // Not JSON or parse error
+        defectMessage = `⚠️ WARNING: Could not parse payload as JSON.`;
       }
       
       iphoneProductInspections = payload;
       
       console.log(`\n[PAYLOAD RECEIVED] Write Operation: iPhoneProductInspections`);
-      console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-      if (clientTimestamp !== null) {
-        console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-      }
+      // console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
+      // if (clientTimestamp !== null) {
+      //   console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
+      // }
       console.log(`  Payload: ${payload.substring(0, 100)}${payload.length > 100 ? '...' : ''}`);
-      if (payloadLatency !== null && payloadLatency >= 0) {
-        console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
-      } else {
-        console.log(`  Payload Latency: N/A (no valid timestamp in payload - add "timestamp": "${new Date().toISOString()}" to JSON)`);
-      }
+      // if (payloadLatency !== null && payloadLatency >= 0) {
+      //   console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
+      // } else {
+      //   console.log(`  Payload Latency: N/A (no valid timestamp in payload - add "timestamp": "${new Date().toISOString()}" to JSON)`);
+      // }
+      
+      // Print defect status message
+      console.log(`\n${defectMessage}\n`);
       
       return StatusCodes.Good;
     },
