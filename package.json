@@ -15,7 +15,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "node-opcua": "^2.153.0"
+    "node-opcua": "^2.153.0",
+    "onoff": "^6.0.3"
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^5.2.2",
