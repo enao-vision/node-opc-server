@@ -5,6 +5,7 @@
   "scripts": {
     "server": "node ./src/server.js",
     "client": "node ./src/client.js",
+    "test-gpio": "node ./src/test-gpio.js",
     "dev": "node --inspect --watch-path=./src",
     "docker:build": "docker build -t opc-ua-server .",
     "docker:run": "docker run --detach -p 4334:4334 opc-ua-server",

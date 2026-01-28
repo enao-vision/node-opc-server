@@ -6,41 +6,63 @@ import {
   VariantArrayType
 } from 'node-opcua';
 import { LogLevel, setLogLevel } from 'node-opcua-debug';
-import { Gpio } from 'onoff';
+// Import onoff GPIO - use createRequire for CommonJS module in ES module context
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { Gpio } = require('onoff');
 
 // Set to most verbose level
 setLogLevel(LogLevel.Debug);
 
 // GPIO Setup for LED (defect indicator)
 // Using GPIO pin 18 (physical pin 12) - change if needed
-// Set to null if not running on Raspberry Pi to avoid errors
+// You can change this to another pin like 17, 27, 22, etc.
+const LED_GPIO_PIN = 18;
 let ledPin = null;
 
 // Helper function to safely control LED
 function setLED(state) {
-  if (!ledPin) return;
+  if (!ledPin) return false;
   try {
     ledPin.writeSync(state ? 1 : 0);
     return true;
   } catch (error) {
+    // If write fails, try to reinitialize the pin
+    if (error.code === 'EINVAL') {
+      console.log(`  ⚠️ GPIO pin ${LED_GPIO_PIN} may be in use or invalid. Trying to reinitialize...`);
+      try {
+        if (ledPin) {
+          ledPin.unexport();
+        }
+        ledPin = new Gpio(LED_GPIO_PIN, 'out');
+        ledPin.writeSync(state ? 1 : 0);
+        return true;
+      } catch (retryError) {
+        console.log(`  ⚠️ Failed to reinitialize GPIO: ${retryError.message}`);
+        ledPin = null;
+        return false;
+      }
+    }
     console.log(`  ⚠️ Error controlling LED: ${error.message}`);
     return false;
   }
 }
 
+// Initialize GPIO with better error handling
 try {
-  // Try to initialize GPIO pin 18
-  ledPin = new Gpio(18, 'out'); // GPIO 18, output mode
+  // Try to initialize GPIO pin
+  ledPin = new Gpio(LED_GPIO_PIN, 'out');
   // Test write to ensure pin is accessible
   ledPin.writeSync(0);
-  console.log('✓ GPIO LED initialized on pin 18');
+  console.log(`✓ GPIO LED initialized on pin ${LED_GPIO_PIN} (physical pin ${LED_GPIO_PIN === 18 ? 12 : 'check pinout'})`);
 } catch (error) {
   console.log('⚠️ GPIO initialization failed:', error.message);
   console.log('   Possible causes:');
   console.log('   - Not running on Raspberry Pi');
   console.log('   - GPIO pin already in use');
-  console.log('   - Insufficient permissions (try: sudo)');
+  console.log('   - Insufficient permissions (try running with: sudo)');
   console.log('   - Invalid GPIO pin number');
+  console.log(`   To fix pin conflict: sudo sh -c "echo ${LED_GPIO_PIN} > /sys/class/gpio/unexport"`);
   console.log('   LED control will be disabled.');
   ledPin = null;
 }
