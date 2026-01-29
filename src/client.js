@@ -23,6 +23,9 @@ const client = OPCUAClient.create({
   securityMode: MessageSecurityMode.None,
   securityPolicy: SecurityPolicy.None,
   endpointMustExist: false,
+  // Network optimizations for low latency
+  // Note: TCP_NODELAY will be set automatically by node-opcua when connecting
+  // Additional optimizations can be added here if supported
 });
 
 // Connect to server running on Raspberry Pi via Ethernet
@@ -61,6 +64,19 @@ async function main() {
     const connectTimer = measureTime('Connection');
     await client.connect(endpointUrl);
     performanceStats.connectionTime = connectTimer.end();
+
+    // Optimize client-side TCP socket for low latency
+    try {
+      // Access the transport layer to set TCP_NODELAY
+      const transport = client._transport;
+      if (transport && transport._socket) {
+        transport._socket.setNoDelay(true); // Disable Nagle's algorithm
+        transport._socket.setKeepAlive(true, 60000);
+        console.log('✓ Client TCP socket optimizations enabled (TCP_NODELAY, keep-alive)');
+      }
+    } catch (error) {
+      // Non-critical - continue even if socket optimization fails
+    }
 
     console.log(`✓ Connected to ${endpointUrl}!`);
     console.log(`  Connection time: ${performanceStats.connectionTime.toFixed(2)} ms\n`);

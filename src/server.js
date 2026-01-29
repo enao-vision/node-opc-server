@@ -180,9 +180,55 @@ const server = new OPCUAServer({
     buildNumber: '7658',
     buildDate: new Date(),
   },
+  // Network optimizations for low latency
+  serverCapabilities: {
+    maxSessions: 100,
+    maxSubscriptions: 100,
+    maxMonitoredItemsPerCall: 1000,
+    maxMonitoredItems: 10000,
+    maxArrayLength: 100000,
+    maxStringLength: 1000000,
+    maxByteStringLength: 1000000,
+    // Optimize for low latency: smaller chunks = faster transmission
+    maxChunkCount: 1, // Use single chunk for small messages (reduces overhead)
+    maxMessageSize: 4194304, // 4MB max message size
+    operationLimits: {
+      maxNodesPerRead: 10000,
+      maxNodesPerWrite: 10000,
+      maxNodesPerMethodCall: 1000,
+      maxNodesPerBrowse: 10000,
+      maxNodesPerRegisterNodes: 10000,
+      maxNodesPerTranslateBrowsePathsToNodeIds: 10000,
+      maxNodesPerNodeManagement: 10000,
+      maxMonitoredItemsPerCall: 1000,
+    },
+  },
 });
 
 await server.initialize();
+
+// Configure TCP socket options for low latency after initialization
+// Enable TCP_NODELAY (disable Nagle's algorithm) for immediate packet transmission
+try {
+  const serverEngine = server.engine;
+  if (serverEngine && serverEngine.server) {
+    // Access the TCP server and configure socket options
+    const tcpServer = serverEngine.server;
+    if (tcpServer && tcpServer.on) {
+      // Set TCP_NODELAY on all new connections for low latency
+      tcpServer.on('connection', (socket) => {
+        socket.setNoDelay(true); // Disable Nagle's algorithm - send immediately
+        socket.setKeepAlive(true, 60000); // Keep connections alive
+        // Additional TCP optimizations
+        socket.setTimeout(0); // Disable timeout for persistent connections
+      });
+      console.log('✓ TCP socket optimizations enabled (TCP_NODELAY, keep-alive)');
+    }
+  }
+} catch (error) {
+  console.log('⚠️ Could not configure TCP socket options:', error.message);
+  console.log('   This is non-critical - server will continue with default settings');
+}
 
 const addressSpace = server.engine.addressSpace;
 const namespace = addressSpace.getOwnNamespace();
