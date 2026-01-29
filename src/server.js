@@ -303,7 +303,6 @@ const method = namespace.addMethod(device, {
 
 method.bindMethod((inputArguments, context, callback) => {
   const receiveTime = Date.now(); // UTC milliseconds since epoch
-  const receiveTimeISO = new Date().toISOString();
   const inputValue = inputArguments[0].value;
   
   // Try to extract client timestamp and message from JSON payload
@@ -321,10 +320,7 @@ method.bindMethod((inputArguments, context, callback) => {
         clientTimestamp = parsedDate.getTime();
         
         // Compare timestamps (both in UTC milliseconds, timezone-agnostic)
-        if (isNaN(clientTimestamp)) {
-          console.log(`  [DEBUG] Failed to parse timestamp: "${parsed.timestamp}"`);
-        } else {
-          // Direct comparison using device's timezone
+        if (!isNaN(clientTimestamp)) {
           payloadLatency = receiveTime - clientTimestamp;
         }
       }
@@ -335,20 +331,8 @@ method.bindMethod((inputArguments, context, callback) => {
     alarmMessage = inputValue;
   }
 
-  console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
-  console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-  if (clientTimestamp !== null) {
-    console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-  }
-  console.log(`  Alarm Message: ${alarmMessage}`);
-  if (payloadLatency !== null && payloadLatency >= 0) {
-    console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
-  } else {
-    console.log(`  Payload Latency: N/A (no valid client timestamp in payload)`);
-  }
-
+  // Return immediately for low latency
   const timestamp = new Date().toISOString();
-
   const callMethodResult = {
     statusCode: StatusCodes.Good,
     outputArguments: [
@@ -361,6 +345,22 @@ method.bindMethod((inputArguments, context, callback) => {
   };
 
   callback(null, callMethodResult);
+
+  // Move logging to async (non-blocking) to not delay response
+  setImmediate(() => {
+    const receiveTimeISO = new Date(receiveTime).toISOString();
+    console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
+    console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
+    if (clientTimestamp !== null) {
+      console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
+    }
+    console.log(`  Alarm Message: ${alarmMessage}`);
+    if (payloadLatency !== null && payloadLatency >= 0) {
+      console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
+    } else {
+      console.log(`  Payload Latency: N/A (no valid client timestamp in payload)`);
+    }
+  });
 });
 
 // iPhone product inspections (writable string variable - accepts JSON)
@@ -376,100 +376,95 @@ namespace.addVariable({
     get: () => new Variant({ dataType: DataType.String, value: iphoneProductInspections }),
     set: (variant) => {
       const receiveTime = Date.now(); // UTC milliseconds since epoch
-      const receiveTimeISO = new Date().toISOString();
       const payload = String(variant.value);
       
-      // Try to extract client timestamp from JSON payload
-      let clientTimestamp = null;
-      let payloadLatency = null;
+      // Store payload immediately
+      iphoneProductInspections = payload;
       
-      let parsed = null;
-      let hasDefects = false;
-      let defectCount = 0;
-      let defectMessage = '';
-      
-      try {
-        parsed = JSON.parse(payload);
+      // Return immediately for low latency - move all processing to async
+      setImmediate(() => {
+        // Try to extract client timestamp from JSON payload
+        let clientTimestamp = null;
+        let payloadLatency = null;
         
-        // Check for defects
-        if (parsed.defects && Array.isArray(parsed.defects)) {
-          defectCount = parsed.defects.length;
-          hasDefects = defectCount > 0;
+        let parsed = null;
+        let hasDefects = false;
+        let defectCount = 0;
+        let defectMessage = '';
+        
+        try {
+          parsed = JSON.parse(payload);
           
-          if (hasDefects) {
-            defectMessage = `⚠️ DEFECTS DETECTED: ${defectCount} defect(s) found in inspection ID ${parsed.inspectionId || 'N/A'}`;
-            if (parsed.defects.length > 0) {
-              const defectList = parsed.defects.map((d, i) => {
-                if (typeof d === 'string') return `${i + 1}. ${d}`;
-                if (typeof d === 'object' && d.description) return `${i + 1}. ${d.description}`;
-                return `${i + 1}. ${JSON.stringify(d)}`;
-              }).join('\n    ');
-              defectMessage += `\n    Defects:\n    ${defectList}`;
+          // Check for defects
+          if (parsed.defects && Array.isArray(parsed.defects)) {
+            defectCount = parsed.defects.length;
+            hasDefects = defectCount > 0;
+            
+            if (hasDefects) {
+              defectMessage = `⚠️ DEFECTS DETECTED: ${defectCount} defect(s) found in inspection ID ${parsed.inspectionId || 'N/A'}`;
+              if (parsed.defects.length > 0) {
+                const defectList = parsed.defects.map((d, i) => {
+                  if (typeof d === 'string') return `${i + 1}. ${d}`;
+                  if (typeof d === 'object' && d.description) return `${i + 1}. ${d.description}`;
+                  return `${i + 1}. ${JSON.stringify(d)}`;
+                }).join('\n    ');
+                defectMessage += `\n    Defects:\n    ${defectList}`;
+              }
+              // Turn on defects LED and stop blinking no-defects LED
+              stopNoDefectsBlink();
+              setLED(true);
+            } else {
+              defectMessage = `✅ NO DEFECTS: All inspections passed. Everything is fine.`;
+              // Turn off defects LED and start blinking no-defects LED
+              setLED(false);
+              startNoDefectsBlink();
             }
-            // Turn on defects LED and stop blinking no-defects LED
-            stopNoDefectsBlink();
-            setLED(true);
-            // console.log('  🔴 Defects LED TURNED ON (defects detected)');
+          } else if (parsed.defects !== undefined) {
+            // Defects field exists but is not an array
+            defectMessage = `⚠️ WARNING: Defects field exists but is not an array.`;
+            // Turn off defects LED and start blinking no-defects LED (assume no critical defects)
+            setLED(false);
+            startNoDefectsBlink();
           } else {
-            defectMessage = `✅ NO DEFECTS: All inspections passed. Everything is fine.`;
+            // No defects field - assume everything is fine
+            defectMessage = `✅ NO DEFECTS: No defects field found. Everything is fine.`;
             // Turn off defects LED and start blinking no-defects LED
             setLED(false);
             startNoDefectsBlink();
-            // console.log('  🔴 Defects LED TURNED OFF (no defects)');
-            // console.log('  🟢 No-Defects LED BLINKING (no defects)');
           }
-        } else if (parsed.defects !== undefined) {
-          // Defects field exists but is not an array
-          defectMessage = `⚠️ WARNING: Defects field exists but is not an array.`;
-          // Turn off defects LED and start blinking no-defects LED (assume no critical defects)
-          setLED(false);
-          startNoDefectsBlink();
-          // console.log('  🔴 Defects LED TURNED OFF (warning, no critical defects)');
-          // console.log('  🟢 No-Defects LED BLINKING (warning, no critical defects)');
-        } else {
-          // No defects field - assume everything is fine
-          defectMessage = `✅ NO DEFECTS: No defects field found. Everything is fine.`;
-          // Turn off defects LED and start blinking no-defects LED
-          setLED(false);
-          startNoDefectsBlink();
-          // console.log('  🔴 Defects LED TURNED OFF (no defects)');
-          // console.log('  🟢 No-Defects LED BLINKING (no defects)');
+          
+          // Parse timestamp for latency calculation
+          if (parsed.timestamp) {
+            // Parse timestamp string respecting its timezone
+            const parsedDate = new Date(parsed.timestamp);
+            clientTimestamp = parsedDate.getTime();
+            
+            // Compare timestamps (both in UTC milliseconds, timezone-agnostic)
+            if (!isNaN(clientTimestamp)) {
+              payloadLatency = receiveTime - clientTimestamp;
+            }
+          }
+        } catch (e) {
+          // Not JSON or parse error
+          defectMessage = `⚠️ WARNING: Could not parse payload as JSON.`;
         }
         
-        // Parse timestamp for latency calculation
-        if (parsed.timestamp) {
-          // Parse timestamp string respecting its timezone
-          const parsedDate = new Date(parsed.timestamp);
-          clientTimestamp = parsedDate.getTime();
-          
-          // Compare timestamps (both in UTC milliseconds, timezone-agnostic)
-          if (isNaN(clientTimestamp)) {
-            console.log(`  [DEBUG] Failed to parse timestamp: "${parsed.timestamp}"`);
-          } else {
-            // Direct comparison using device's timezone
-            payloadLatency = receiveTime - clientTimestamp;
-          }
+        // Logging (non-blocking, already in async context)
+        const receiveTimeISO = new Date(receiveTime).toISOString();
+        console.log(`\n[PAYLOAD RECEIVED] Write Operation: iPhoneProductInspections`);
+        console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
+        if (clientTimestamp !== null) {
+          console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
         }
-      } catch (e) {
-        // Not JSON or parse error
-        defectMessage = `⚠️ WARNING: Could not parse payload as JSON.`;
-      }
+        console.log(`  Payload: ${payload.substring(0, 100)}${payload.length > 100 ? '...' : ''}`);
+        if (payloadLatency !== null && payloadLatency >= 0) {
+          console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
+        } else {
+          console.log(`  Payload Latency: N/A (no valid timestamp in payload - add "timestamp": "${new Date().toISOString()}" to JSON)`);
+        }
+      });
       
-      iphoneProductInspections = payload;
-      
-      console.log(`\n[PAYLOAD RECEIVED] Write Operation: iPhoneProductInspections`);
-      console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-      if (clientTimestamp !== null) {
-        console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-      }
-      console.log(`  Payload: ${payload.substring(0, 100)}${payload.length > 100 ? '...' : ''}`);
-      if (payloadLatency !== null && payloadLatency >= 0) {
-        console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
-      } else {
-        console.log(`  Payload Latency: N/A (no valid timestamp in payload - add "timestamp": "${new Date().toISOString()}" to JSON)`);
-      }
-      // console.log(`\n${defectMessage}\n`);
-      
+      // Return immediately without waiting for processing
       return StatusCodes.Good;
     },
   },
