@@ -316,29 +316,16 @@ method.bindMethod((inputArguments, context, callback) => {
     if (typeof inputValue === 'string' && inputValue.startsWith('{')) {
       const parsed = JSON.parse(inputValue);
       if (parsed.timestamp) {
-        // Parse timestamp string to UTC milliseconds
+        // Parse timestamp string respecting its timezone
         const parsedDate = new Date(parsed.timestamp);
         clientTimestamp = parsedDate.getTime();
         
-        // Debug: Show what we're comparing
+        // Compare timestamps (both in UTC milliseconds, timezone-agnostic)
         if (isNaN(clientTimestamp)) {
           console.log(`  [DEBUG] Failed to parse timestamp: "${parsed.timestamp}"`);
         } else {
-          // Validate timestamp is reasonable (not NaN, and within last hour)
+          // Direct comparison using device's timezone
           payloadLatency = receiveTime - clientTimestamp;
-          
-          // Validate latency is reasonable (should be positive and less than 60 seconds for local network)
-          if (payloadLatency < 0) {
-            console.log(`  [WARNING] Negative latency (${payloadLatency.toFixed(2)} ms) - client timestamp is in the future!`);
-            console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-            console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-            payloadLatency = null;
-          } else if (payloadLatency > 60000) {
-            console.log(`  [WARNING] Latency too high (${payloadLatency.toFixed(2)} ms = ${(payloadLatency/1000).toFixed(2)}s) - possible timezone issue`);
-            console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-            console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-            payloadLatency = null;
-          }
         }
       }
       alarmMessage = parsed.message || inputValue; // Use message field if available
@@ -348,12 +335,12 @@ method.bindMethod((inputArguments, context, callback) => {
     alarmMessage = inputValue;
   }
 
-  // console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
-  // console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-  // if (clientTimestamp !== null) {
-  //   console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-  // }
-  // console.log(`  Alarm Message: ${alarmMessage}`);
+  console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
+  console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
+  if (clientTimestamp !== null) {
+    console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
+  }
+  console.log(`  Alarm Message: ${alarmMessage}`);
   if (payloadLatency !== null && payloadLatency >= 0) {
     console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
   } else {
@@ -451,29 +438,16 @@ namespace.addVariable({
         
         // Parse timestamp for latency calculation
         if (parsed.timestamp) {
-          // Parse timestamp string to UTC milliseconds
+          // Parse timestamp string respecting its timezone
           const parsedDate = new Date(parsed.timestamp);
           clientTimestamp = parsedDate.getTime();
           
-          // Debug: Show what we're comparing
+          // Compare timestamps (both in UTC milliseconds, timezone-agnostic)
           if (isNaN(clientTimestamp)) {
             console.log(`  [DEBUG] Failed to parse timestamp: "${parsed.timestamp}"`);
           } else {
-            // Validate timestamp is reasonable (not NaN, and within last hour)
+            // Direct comparison using device's timezone
             payloadLatency = receiveTime - clientTimestamp;
-            
-            // Validate latency is reasonable (should be positive and less than 60 seconds for local network)
-            if (payloadLatency < 0) {
-              console.log(`  [WARNING] Negative latency (${payloadLatency.toFixed(2)} ms) - client timestamp is in the future!`);
-              console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-              console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-              payloadLatency = null;
-            } else if (payloadLatency > 60000) {
-              console.log(`  [WARNING] Latency too high (${payloadLatency.toFixed(2)} ms = ${(payloadLatency/1000).toFixed(2)}s) - possible timezone issue`);
-              console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-              console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-              payloadLatency = null;
-            }
           }
         }
       } catch (e) {
@@ -483,12 +457,12 @@ namespace.addVariable({
       
       iphoneProductInspections = payload;
       
-      // console.log(`\n[PAYLOAD RECEIVED] Write Operation: iPhoneProductInspections`);
-      // console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-      // if (clientTimestamp !== null) {
-      //   console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-      // }
-      // console.log(`  Payload: ${payload.substring(0, 100)}${payload.length > 100 ? '...' : ''}`);
+      console.log(`\n[PAYLOAD RECEIVED] Write Operation: iPhoneProductInspections`);
+      console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
+      if (clientTimestamp !== null) {
+        console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
+      }
+      console.log(`  Payload: ${payload.substring(0, 100)}${payload.length > 100 ? '...' : ''}`);
       if (payloadLatency !== null && payloadLatency >= 0) {
         console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
       } else {

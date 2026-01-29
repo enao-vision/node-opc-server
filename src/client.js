@@ -25,10 +25,9 @@ const client = OPCUAClient.create({
   endpointMustExist: false,
 });
 
-// Connect to server running on Raspberry Pi
-// Replace <RASPBERRY_PI_IP> with your Raspberry Pi's actual IP address on the WiFi network
-// Example: 'opc.tcp://192.168.1.50:4334/UA/MyOPCServer'
-const endpointUrl = 'opc.tcp://192.168.101.144:4334/UA/MyOPCServer';
+// Connect to server running on Raspberry Pi via Ethernet
+// Raspberry Pi Ethernet IP address
+const endpointUrl = 'opc.tcp://192.168.1.100:4334/UA/MyOPCServer';
 
 async function timeout(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
