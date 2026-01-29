@@ -203,9 +203,6 @@ const server = new OPCUAServer({
       maxMonitoredItemsPerCall: 1000,
     },
   },
-  // Session timeout to prevent stale session buildup (causes latency increase)
-  defaultSecureTokenLifetime: 3600000, // 1 hour in milliseconds
-  maxAllowedSessionNumber: 100, // Limit concurrent sessions
 });
 
 await server.initialize();
@@ -396,42 +393,24 @@ method.bindMethod((inputArguments, context, callback) => {
   callback(null, callMethodResult);
 
   // Move logging to async (non-blocking) to not delay response
-  // Only queue if queue isn't too full (prevent latency buildup)
-  if (asyncQueueSize < MAX_ASYNC_QUEUE_SIZE) {
-    asyncQueueSize++;
-    setImmediate(() => {
-      asyncQueueSize--;
-      const receiveTimeISO = new Date(receiveTime).toISOString();
-      console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
-      console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-      if (clientTimestamp !== null) {
-        console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-      }
-      console.log(`  Alarm Message: ${alarmMessage}`);
-      if (payloadLatency !== null && payloadLatency >= 0) {
-        console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
-      } else {
-        console.log(`  Payload Latency: N/A (no valid client timestamp in payload)`);
-      }
-    });
-  } else {
-    droppedOperations++;
-    // Log dropped operations periodically to avoid spam
-    if (droppedOperations % 100 === 1) {
-      setImmediate(() => {
-        console.log(`⚠️ Warning: ${droppedOperations} async operations dropped due to queue full (preventing latency buildup)`);
-      });
+  setImmediate(() => {
+    const receiveTimeISO = new Date(receiveTime).toISOString();
+    console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
+    console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
+    if (clientTimestamp !== null) {
+      console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
     }
-  }
+    console.log(`  Alarm Message: ${alarmMessage}`);
+    if (payloadLatency !== null && payloadLatency >= 0) {
+      console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
+    } else {
+      console.log(`  Payload Latency: N/A (no valid client timestamp in payload)`);
+    }
+  });
 });
 
 // iPhone product inspections (writable string variable - accepts JSON)
 let iphoneProductInspections = '{}';
-
-// Track async operation queue to prevent buildup
-let asyncQueueSize = 0;
-const MAX_ASYNC_QUEUE_SIZE = 10; // Limit concurrent async operations
-let droppedOperations = 0;
 
 namespace.addVariable({
   componentOf: device,
@@ -445,20 +424,11 @@ namespace.addVariable({
       const receiveTime = Date.now(); // UTC milliseconds since epoch
       const payload = String(variant.value);
       
-      // Store payload immediately (limit size to prevent memory buildup)
-      const MAX_PAYLOAD_SIZE = 100000; // 100KB limit
-      if (payload.length > MAX_PAYLOAD_SIZE) {
-        iphoneProductInspections = payload.substring(0, MAX_PAYLOAD_SIZE) + '...[truncated]';
-      } else {
-        iphoneProductInspections = payload;
-      }
+      // Store payload immediately
+      iphoneProductInspections = payload;
       
       // Return immediately for low latency - move all processing to async
-      // Only queue if queue isn't too full (prevent latency buildup)
-      if (asyncQueueSize < MAX_ASYNC_QUEUE_SIZE) {
-        asyncQueueSize++;
-        setImmediate(() => {
-          asyncQueueSize--;
+      setImmediate(() => {
         // Try to extract client timestamp from JSON payload
         let clientTimestamp = null;
         let payloadLatency = null;
@@ -538,16 +508,7 @@ namespace.addVariable({
         } else {
           console.log(`  Payload Latency: N/A (no valid timestamp in payload - add "timestamp": "${new Date().toISOString()}" to JSON)`);
         }
-        });
-      } else {
-        droppedOperations++;
-        // Log dropped operations periodically to avoid spam
-        if (droppedOperations % 100 === 1) {
-          setImmediate(() => {
-            console.log(`⚠️ Warning: ${droppedOperations} async operations dropped due to queue full (preventing latency buildup)`);
-          });
-        }
-      }
+      });
       
       // Return immediately without waiting for processing
       return StatusCodes.Good;
@@ -559,15 +520,4 @@ server.start(function () {
   console.log('Server is now listening ... ( press CTRL+C to stop)');
   const endpointUrl = server.endpoints[0].endpointDescriptions()[0].endpointUrl;
   console.log('URL:', endpointUrl);
-  
-  // Monitor async queue health periodically (every 30 seconds)
-  setInterval(() => {
-    if (asyncQueueSize > 0 || droppedOperations > 0) {
-      console.log(`[Queue Health] Active async operations: ${asyncQueueSize}/${MAX_ASYNC_QUEUE_SIZE}, Dropped: ${droppedOperations}`);
-    }
-    // Reset dropped counter periodically to prevent overflow
-    if (droppedOperations > 10000) {
-      droppedOperations = 0;
-    }
-  }, 30000); // Every 30 seconds
 });
