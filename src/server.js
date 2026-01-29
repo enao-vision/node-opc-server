@@ -7,6 +7,7 @@ import {
 } from 'node-opcua';
 import { LogLevel, setLogLevel } from 'node-opcua-debug';
 // Import onoff GPIO - use createRequire for CommonJS module in ES module context
+import { execSync } from 'child_process';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const { Gpio } = require('onoff');
@@ -17,8 +18,11 @@ setLogLevel(LogLevel.Debug);
 // GPIO Setup for LED (defect indicator)
 // Using GPIO pin 18 (physical pin 12) - change if needed
 // You can change this to another pin like 17, 27, 22, etc.
-const LED_GPIO_PIN = 18;
+const LED_GPIO_PIN = 18; // LED for defects (solid ON when defects detected)
+const NO_DEFECTS_LED_PIN = 17; // LED for no defects (blinks when no defects)
 let ledPin = null;
+let noDefectsLedPin = null;
+let noDefectsBlinkInterval = null; // Interval for blinking the "no defects" LED
 
 // Helper function to safely control LED
 function setLED(state) {
@@ -48,23 +52,106 @@ function setLED(state) {
   }
 }
 
+// Helper function to safely control "no defects" LED
+function setNoDefectsLED(state) {
+  if (!noDefectsLedPin) return false;
+  try {
+    noDefectsLedPin.writeSync(state ? 1 : 0);
+    return true;
+  } catch (error) {
+    if (error.code === 'EINVAL') {
+      console.log(`  ⚠️ GPIO pin ${NO_DEFECTS_LED_PIN} may be in use or invalid. Trying to reinitialize...`);
+      try {
+        if (noDefectsLedPin) {
+          noDefectsLedPin.unexport();
+        }
+        noDefectsLedPin = new Gpio(NO_DEFECTS_LED_PIN, 'out');
+        noDefectsLedPin.writeSync(state ? 1 : 0);
+        return true;
+      } catch (retryError) {
+        console.log(`  ⚠️ Failed to reinitialize GPIO: ${retryError.message}`);
+        noDefectsLedPin = null;
+        return false;
+      }
+    }
+    console.log(`  ⚠️ Error controlling no-defects LED: ${error.message}`);
+    return false;
+  }
+}
+
+// Function to start blinking the "no defects" LED
+function startNoDefectsBlink() {
+  // Stop any existing blink
+  stopNoDefectsBlink();
+  
+  if (!noDefectsLedPin) return false;
+  
+  let isOn = false;
+  noDefectsBlinkInterval = setInterval(() => {
+    isOn = !isOn;
+    setNoDefectsLED(isOn);
+  }, 250); // Blink every 250ms (same as test-gpio.js)
+  
+  return true;
+}
+
+// Function to stop blinking the "no defects" LED
+function stopNoDefectsBlink() {
+  if (noDefectsBlinkInterval) {
+    clearInterval(noDefectsBlinkInterval);
+    noDefectsBlinkInterval = null;
+  }
+  // Turn off the LED when stopping
+  setNoDefectsLED(false);
+}
+
 // Initialize GPIO with better error handling
 try {
+  // First, try to unexport the pin if it's already exported (prevents EINVAL errors)
+  try {
+    execSync(`echo ${LED_GPIO_PIN} > /sys/class/gpio/unexport 2>/dev/null`, { stdio: 'ignore' });
+  } catch (e) {
+    // Pin might not be exported, that's fine
+  }
+  
+  // Small delay to ensure pin is released
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
   // Try to initialize GPIO pin
   ledPin = new Gpio(LED_GPIO_PIN, 'out');
   // Test write to ensure pin is accessible
   ledPin.writeSync(0);
-  console.log(`✓ GPIO LED initialized on pin ${LED_GPIO_PIN} (physical pin ${LED_GPIO_PIN === 18 ? 12 : 'check pinout'})`);
+  console.log(`✓ GPIO LED initialized on pin ${LED_GPIO_PIN} (physical pin ${LED_GPIO_PIN === 18 ? 12 : LED_GPIO_PIN === 4 ? 7 : 'check pinout'})`);
 } catch (error) {
   console.log('⚠️ GPIO initialization failed:', error.message);
   console.log('   Possible causes:');
   console.log('   - Not running on Raspberry Pi');
-  console.log('   - GPIO pin already in use');
+  console.log('   - GPIO pin already in use by another process');
   console.log('   - Insufficient permissions (try running with: sudo)');
   console.log('   - Invalid GPIO pin number');
-  console.log(`   To fix pin conflict: sudo sh -c "echo ${LED_GPIO_PIN} > /sys/class/gpio/unexport"`);
+  console.log(`   To manually fix: sudo sh -c "echo ${LED_GPIO_PIN} > /sys/class/gpio/unexport"`);
   console.log('   LED control will be disabled.');
   ledPin = null;
+}
+
+// Initialize second LED for "no defects" indicator
+try {
+  try {
+    execSync(`echo ${NO_DEFECTS_LED_PIN} > /sys/class/gpio/unexport 2>/dev/null`, { stdio: 'ignore' });
+  } catch (e) {
+    // Pin might not be exported, that's fine
+  }
+  
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  noDefectsLedPin = new Gpio(NO_DEFECTS_LED_PIN, 'out');
+  noDefectsLedPin.writeSync(0);
+  console.log(`✓ GPIO "No Defects" LED initialized on pin ${NO_DEFECTS_LED_PIN}`);
+} catch (error) {
+  console.log(`⚠️ "No Defects" LED initialization failed: ${error.message}`);
+  console.log(`   To manually fix: sudo sh -c "echo ${NO_DEFECTS_LED_PIN} > /sys/class/gpio/unexport"`);
+  console.log('   "No Defects" LED control will be disabled.');
+  noDefectsLedPin = null;
 }
 
 // const userManager = {
@@ -171,6 +258,7 @@ const timerId = setInterval(() => {
 addressSpace.registerShutdownTask(() => {
   clearInterval(timerId);
   // Cleanup GPIO on shutdown
+  stopNoDefectsBlink(); // Stop blinking before cleanup
   if (ledPin) {
     try {
       setLED(false); // Turn off LED
@@ -178,6 +266,15 @@ addressSpace.registerShutdownTask(() => {
       console.log('✓ GPIO LED cleaned up');
     } catch (error) {
       console.log('Error cleaning up GPIO:', error.message);
+    }
+  }
+  if (noDefectsLedPin) {
+    try {
+      setNoDefectsLED(false); // Turn off LED
+      noDefectsLedPin.unexport(); // Unexport GPIO pin
+      console.log('✓ "No Defects" GPIO LED cleaned up');
+    } catch (error) {
+      console.log('Error cleaning up "No Defects" GPIO:', error.message);
     }
   }
 });
@@ -205,63 +302,35 @@ const method = namespace.addMethod(device, {
 });
 
 method.bindMethod((inputArguments, context, callback) => {
-  // const receiveTime = Date.now(); // UTC milliseconds since epoch
-  // const receiveTimeISO = new Date().toISOString();
+  const receiveTime = Date.now();
+  const receiveTimeISO = new Date().toISOString();
   const inputValue = inputArguments[0].value;
+  
+  // Log payload received
+  console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
+  console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
+  console.log(`  Raw Payload: ${typeof inputValue === 'string' ? inputValue : JSON.stringify(inputValue)}`);
   
   // Try to extract client timestamp and message from JSON payload
   let alarmMessage = inputValue;
-  // let clientTimestamp = null;
-  // let payloadLatency = null;
   
   try {
     // Check if the message is JSON with timestamp
     if (typeof inputValue === 'string' && inputValue.startsWith('{')) {
       const parsed = JSON.parse(inputValue);
-      // if (parsed.timestamp) {
-      //   // Parse timestamp string to UTC milliseconds
-      //   const parsedDate = new Date(parsed.timestamp);
-      //   clientTimestamp = parsedDate.getTime();
-      //   
-      //   // Debug: Show what we're comparing
-      //   if (isNaN(clientTimestamp)) {
-      //     console.log(`  [DEBUG] Failed to parse timestamp: "${parsed.timestamp}"`);
-      //   } else {
-      //     // Validate timestamp is reasonable (not NaN, and within last hour)
-      //     payloadLatency = receiveTime - clientTimestamp;
-      //     
-      //     // Validate latency is reasonable (should be positive and less than 60 seconds for local network)
-      //     if (payloadLatency < 0) {
-      //       console.log(`  [WARNING] Negative latency (${payloadLatency.toFixed(2)} ms) - client timestamp is in the future!`);
-      //       console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-      //       console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-      //       payloadLatency = null;
-      //     } else if (payloadLatency > 60000) {
-      //       console.log(`  [WARNING] Latency too high (${payloadLatency.toFixed(2)} ms = ${(payloadLatency/1000).toFixed(2)}s) - possible timezone issue`);
-      //       console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-      //       console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-      //       payloadLatency = null;
-      //     }
-      //   }
-      // }
       alarmMessage = parsed.message || inputValue; // Use message field if available
+      console.log(`  Parsed Message: ${alarmMessage}`);
+      if (parsed.timestamp) {
+        console.log(`  Client Timestamp: ${parsed.timestamp}`);
+      }
     }
   } catch (e) {
     // Not JSON or parse error, use original value
     alarmMessage = inputValue;
+    console.log(`  Payload is not JSON, using as-is`);
   }
 
-  console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
-  // console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-  // if (clientTimestamp !== null) {
-  //   console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-  // }
   console.log(`  Alarm Message: ${alarmMessage}`);
-  // if (payloadLatency !== null && payloadLatency >= 0) {
-  //   console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
-  // } else {
-  //   console.log(`  Payload Latency: N/A (no valid client timestamp in payload)`);
-  // }
 
   const timestamp = new Date().toISOString();
 
@@ -291,13 +360,15 @@ namespace.addVariable({
   value: {
     get: () => new Variant({ dataType: DataType.String, value: iphoneProductInspections }),
     set: (variant) => {
-      // const receiveTime = Date.now(); // UTC milliseconds since epoch
-      // const receiveTimeISO = new Date().toISOString();
+      const receiveTime = Date.now();
+      const receiveTimeISO = new Date().toISOString();
       const payload = String(variant.value);
       
-      // Try to extract client timestamp from JSON payload
-      // let clientTimestamp = null;
-      // let payloadLatency = null;
+      // Log payload received
+      console.log(`\n[PAYLOAD RECEIVED] Write Operation: iPhoneProductInspections`);
+      console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
+      console.log(`  Payload Length: ${payload.length} characters`);
+      console.log(`  Payload Preview: ${payload.substring(0, 200)}${payload.length > 200 ? '...' : ''}`);
       
       let parsed = null;
       let hasDefects = false;
@@ -306,6 +377,13 @@ namespace.addVariable({
       
       try {
         parsed = JSON.parse(payload);
+        console.log(`  ✓ Payload parsed as JSON successfully`);
+        if (parsed.timestamp) {
+          console.log(`  Client Timestamp: ${parsed.timestamp}`);
+        }
+        if (parsed.inspectionId) {
+          console.log(`  Inspection ID: ${parsed.inspectionId}`);
+        }
         
         // Check for defects
         if (parsed.defects && Array.isArray(parsed.defects)) {
@@ -322,78 +400,49 @@ namespace.addVariable({
               }).join('\n    ');
               defectMessage += `\n    Defects:\n    ${defectList}`;
             }
-            // Turn on LED when defects are detected
+            // Turn on defects LED and stop blinking no-defects LED
+            stopNoDefectsBlink();
             if (setLED(true)) {
-              console.log('  🔴 LED TURNED ON (defects detected)');
+              console.log('  🔴 Defects LED TURNED ON (defects detected)');
             }
           } else {
             defectMessage = `✅ NO DEFECTS: All inspections passed. Everything is fine.`;
-            // Turn off LED when no defects
+            // Turn off defects LED and start blinking no-defects LED
             if (setLED(false)) {
-              console.log('  🟢 LED TURNED OFF (no defects)');
+              console.log('  🔴 Defects LED TURNED OFF (no defects)');
+            }
+            if (startNoDefectsBlink()) {
+              console.log('  🟢 No-Defects LED BLINKING (no defects)');
             }
           }
         } else if (parsed.defects !== undefined) {
           // Defects field exists but is not an array
           defectMessage = `⚠️ WARNING: Defects field exists but is not an array.`;
-          // Turn off LED for warnings (assume no critical defects)
+          // Turn off defects LED and start blinking no-defects LED (assume no critical defects)
           if (setLED(false)) {
-            console.log('  🟢 LED TURNED OFF (warning, no critical defects)');
+            console.log('  🔴 Defects LED TURNED OFF (warning, no critical defects)');
+          }
+          if (startNoDefectsBlink()) {
+            console.log('  🟢 No-Defects LED BLINKING (warning, no critical defects)');
           }
         } else {
           // No defects field - assume everything is fine
           defectMessage = `✅ NO DEFECTS: No defects field found. Everything is fine.`;
-          // Turn off LED when no defects
+          // Turn off defects LED and start blinking no-defects LED
           if (setLED(false)) {
-            console.log('  🟢 LED TURNED OFF (no defects)');
+            console.log('  🔴 Defects LED TURNED OFF (no defects)');
+          }
+          if (startNoDefectsBlink()) {
+            console.log('  🟢 No-Defects LED BLINKING (no defects)');
           }
         }
-        
-        // Parse timestamp for latency calculation
-        // if (parsed.timestamp) {
-        //   // Parse timestamp string to UTC milliseconds
-        //   const parsedDate = new Date(parsed.timestamp);
-        //   clientTimestamp = parsedDate.getTime();
-        //   
-        //   // Debug: Show what we're comparing
-        //   if (isNaN(clientTimestamp)) {
-        //     console.log(`  [DEBUG] Failed to parse timestamp: "${parsed.timestamp}"`);
-        //   } else {
-        //     // Validate timestamp is reasonable (not NaN, and within last hour)
-        //     payloadLatency = receiveTime - clientTimestamp;
-        //     
-        //     // Validate latency is reasonable (should be positive and less than 60 seconds for local network)
-        //     if (payloadLatency < 0) {
-        //       console.log(`  [WARNING] Negative latency (${payloadLatency.toFixed(2)} ms) - client timestamp is in the future!`);
-        //       console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-        //       console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-        //       payloadLatency = null;
-        //     } else if (payloadLatency > 60000) {
-        //       console.log(`  [WARNING] Latency too high (${payloadLatency.toFixed(2)} ms = ${(payloadLatency/1000).toFixed(2)}s) - possible timezone issue`);
-        //       console.log(`    Client: ${parsed.timestamp} (${clientTimestamp})`);
-        //       console.log(`    Server: ${receiveTimeISO} (${receiveTime})`);
-        //       payloadLatency = null;
-        //     }
-        //   }
-        // }
       } catch (e) {
         // Not JSON or parse error
         defectMessage = `⚠️ WARNING: Could not parse payload as JSON.`;
+        console.log(`  ✗ Failed to parse payload as JSON: ${e.message}`);
       }
       
       iphoneProductInspections = payload;
-      
-      console.log(`\n[PAYLOAD RECEIVED] Write Operation: iPhoneProductInspections`);
-      // console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-      // if (clientTimestamp !== null) {
-      //   console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-      // }
-      console.log(`  Payload: ${payload.substring(0, 100)}${payload.length > 100 ? '...' : ''}`);
-      // if (payloadLatency !== null && payloadLatency >= 0) {
-      //   console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
-      // } else {
-      //   console.log(`  Payload Latency: N/A (no valid timestamp in payload - add "timestamp": "${new Date().toISOString()}" to JSON)`);
-      // }
       
       // Print defect status message
       console.log(`\n${defectMessage}\n`);
