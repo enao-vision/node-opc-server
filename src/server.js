@@ -15,15 +15,93 @@ const { Gpio } = require('onoff');
 // Set to most verbose level
 setLogLevel(LogLevel.Debug);
 
+// Clock synchronization check for Raspberry Pi
+// Raspberry Pis don't have hardware RTC and rely on NTP for time sync
+let clockSyncStatus = {
+  synchronized: false,
+  lastChecked: null,
+  ntpActive: false,
+  systemTime: null
+};
+
+/**
+ * Checks if the system clock is synchronized with NTP
+ * Raspberry Pis need NTP sync since they don't have hardware RTC
+ * @returns {Object} Clock synchronization status
+ */
+function checkClockSynchronization() {
+  try {
+    // Check using timedatectl (systemd-based systems like Raspberry Pi OS)
+    const output = execSync('timedatectl status', { encoding: 'utf8', stdio: 'pipe' });
+    
+    const synchronized = output.includes('synchronized: yes') || output.includes('System clock synchronized: yes');
+    const ntpActive = output.includes('NTP service: active') || output.includes('NTP enabled: yes');
+    
+    clockSyncStatus = {
+      synchronized,
+      ntpActive,
+      lastChecked: Date.now(),
+      systemTime: new Date().toISOString(),
+      rawOutput: output
+    };
+    
+    return clockSyncStatus;
+  } catch (error) {
+    // Fallback: try to check NTP using ntpq or chrony
+    try {
+      // Try ntpq (older NTP)
+      execSync('ntpq -p 2>/dev/null', { stdio: 'ignore' });
+      clockSyncStatus = {
+        synchronized: true, // Assume synced if ntpq works
+        ntpActive: true,
+        lastChecked: Date.now(),
+        systemTime: new Date().toISOString(),
+        note: 'NTP check via ntpq (assumed synchronized)'
+      };
+      return clockSyncStatus;
+    } catch (e) {
+      // If we can't check, assume not synchronized and warn
+      clockSyncStatus = {
+        synchronized: false,
+        ntpActive: false,
+        lastChecked: Date.now(),
+        systemTime: new Date().toISOString(),
+        error: 'Could not determine clock sync status'
+      };
+      return clockSyncStatus;
+    }
+  }
+}
+
+// Check clock synchronization on startup
+console.log('\n=== Clock Synchronization Check ===');
+const initialClockCheck = checkClockSynchronization();
+if (initialClockCheck.synchronized) {
+  console.log('✓ System clock is synchronized with NTP');
+  console.log(`  System time: ${initialClockCheck.systemTime}`);
+} else {
+  console.log('⚠️ WARNING: System clock may not be synchronized!');
+  console.log('  Raspberry Pis need NTP to maintain accurate time');
+  console.log('  This can cause incorrect latency measurements');
+  console.log('\n  To fix:');
+  console.log('  1. Check NTP service: sudo systemctl status systemd-timesyncd');
+  console.log('  2. Enable NTP: sudo timedatectl set-ntp true');
+  console.log('  3. Check status: timedatectl status');
+  console.log('  4. Force sync: sudo systemctl restart systemd-timesyncd');
+}
+console.log('=====================================\n');
+
 // Latency measurement with clock skew handling
 // Tracks clock offset between server and client devices
 let clockOffsetEstimate = null; // Estimated clock offset in milliseconds (server - client)
 let latencyMeasurements = []; // Recent measurements for offset estimation
 const MAX_MEASUREMENTS = 100; // Keep last N measurements for offset calculation
+const PERCENTILE_FOR_OFFSET = 5; // Use 5th percentile for stable offset estimate (less affected by outliers)
 
 /**
  * Measures latency between device and server when receiving a payload
  * Handles unsynchronized clocks by estimating clock offset over time
+ * Uses percentile-based approach for stable offset estimation
  * 
  * @param {string|number} clientTimestamp - Timestamp from client payload (ISO string or milliseconds)
  * @returns {Object} Latency measurement result with:
@@ -62,8 +140,7 @@ function measureLatency(clientTimestamp) {
   // Calculate apparent latency (raw time difference)
   const apparentLatency = serverTime - clientTime;
   
-  // Update clock offset estimate using median of recent measurements
-  // This helps filter out network jitter and gives stable offset estimate
+  // Add measurement to history
   latencyMeasurements.push({
     serverTime,
     clientTime,
@@ -71,32 +148,63 @@ function measureLatency(clientTimestamp) {
     timestamp: Date.now()
   });
   
-  // Keep only recent measurements
+  // Keep only recent measurements (sliding window)
   if (latencyMeasurements.length > MAX_MEASUREMENTS) {
     latencyMeasurements.shift();
   }
   
-  // Estimate clock offset using median of apparent latencies
-  // Assumes network latency is roughly symmetric and stable
-  if (latencyMeasurements.length >= 3) {
+  // Estimate clock offset using percentile-based approach
+  // This is more stable than using absolute minimum and handles clock drift better
+  if (latencyMeasurements.length >= 10) {
+    // Use percentile instead of minimum for stability
+    // The 5th percentile represents packets with minimal network delay
     const sortedLatencies = [...latencyMeasurements]
       .map(m => m.apparentLatency)
       .sort((a, b) => a - b);
-    const medianIndex = Math.floor(sortedLatencies.length / 2);
-    const medianLatency = sortedLatencies[medianIndex];
     
-    // Estimate offset: if median is consistently positive/negative, it's likely clock offset
-    // For better accuracy, we use the minimum apparent latency as baseline
-    // (assuming at least one packet had minimal network delay)
-    const minLatency = Math.min(...sortedLatencies);
-    clockOffsetEstimate = minLatency > 0 ? minLatency : 0;
+    const percentileIndex = Math.floor((PERCENTILE_FOR_OFFSET / 100) * sortedLatencies.length);
+    const percentileLatency = sortedLatencies[Math.max(0, percentileIndex)];
+    
+    // Only update offset if it's significantly different (to prevent drift)
+    // Use exponential smoothing for stability
+    if (clockOffsetEstimate === null) {
+      clockOffsetEstimate = percentileLatency;
+    } else {
+      // Only update if new estimate is within reasonable range (prevents sudden jumps)
+      // Use weighted average: 90% old, 10% new (very slow adaptation)
+      const alpha = 0.1; // Learning rate - low for stability
+      const newOffset = percentileLatency;
+      
+      // Only update if change is reasonable (less than 100ms difference)
+      // This prevents offset from drifting due to network conditions
+      if (Math.abs(newOffset - clockOffsetEstimate) < 100) {
+        clockOffsetEstimate = clockOffsetEstimate * (1 - alpha) + newOffset * alpha;
+      }
+      // If change is too large, it's likely a network spike, not clock drift
+    }
+  } else if (latencyMeasurements.length >= 3) {
+    // With fewer measurements, use minimum but be conservative
+    const sortedLatencies = [...latencyMeasurements]
+      .map(m => m.apparentLatency)
+      .sort((a, b) => a - b);
+    const minLatency = sortedLatencies[0];
+    
+    if (clockOffsetEstimate === null) {
+      clockOffsetEstimate = minLatency;
+    } else {
+      // Very conservative update with few samples
+      const alpha = 0.05; // Even slower learning
+      clockOffsetEstimate = clockOffsetEstimate * (1 - alpha) + minLatency * alpha;
+    }
   } else {
-    // With few measurements, use first measurement as initial estimate
-    clockOffsetEstimate = apparentLatency;
+    // With very few measurements, initialize conservatively
+    if (clockOffsetEstimate === null) {
+      clockOffsetEstimate = apparentLatency;
+    }
   }
   
   // Estimate true latency by subtracting clock offset
-  // This assumes the minimum observed latency is close to true latency
+  // Ensure it's non-negative
   const estimatedLatency = Math.max(0, apparentLatency - (clockOffsetEstimate || 0));
   
   return {
