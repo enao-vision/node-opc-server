@@ -15,6 +15,100 @@ const { Gpio } = require('onoff');
 // Set to most verbose level
 setLogLevel(LogLevel.Debug);
 
+// Latency measurement with clock skew handling
+// Tracks clock offset between server and client devices
+let clockOffsetEstimate = null; // Estimated clock offset in milliseconds (server - client)
+let latencyMeasurements = []; // Recent measurements for offset estimation
+const MAX_MEASUREMENTS = 100; // Keep last N measurements for offset calculation
+
+/**
+ * Measures latency between device and server when receiving a payload
+ * Handles unsynchronized clocks by estimating clock offset over time
+ * 
+ * @param {string|number} clientTimestamp - Timestamp from client payload (ISO string or milliseconds)
+ * @returns {Object} Latency measurement result with:
+ *   - apparentLatency: Raw time difference (includes clock offset)
+ *   - estimatedLatency: Estimated true latency (adjusted for clock offset)
+ *   - clockOffset: Estimated clock offset (server - client)
+ *   - serverTime: Server receive time (milliseconds since epoch)
+ *   - clientTime: Parsed client timestamp (milliseconds since epoch)
+ */
+function measureLatency(clientTimestamp) {
+  const serverTime = Date.now();
+  let clientTime = null;
+  
+  // Parse client timestamp
+  if (clientTimestamp) {
+    if (typeof clientTimestamp === 'string') {
+      const parsed = new Date(clientTimestamp);
+      clientTime = parsed.getTime();
+    } else if (typeof clientTimestamp === 'number') {
+      clientTime = clientTimestamp;
+    }
+  }
+  
+  // If we couldn't parse the timestamp, return null
+  if (clientTime === null || isNaN(clientTime)) {
+    return {
+      apparentLatency: null,
+      estimatedLatency: null,
+      clockOffset: clockOffsetEstimate,
+      serverTime: serverTime,
+      clientTime: null,
+      valid: false
+    };
+  }
+  
+  // Calculate apparent latency (raw time difference)
+  const apparentLatency = serverTime - clientTime;
+  
+  // Update clock offset estimate using median of recent measurements
+  // This helps filter out network jitter and gives stable offset estimate
+  latencyMeasurements.push({
+    serverTime,
+    clientTime,
+    apparentLatency,
+    timestamp: Date.now()
+  });
+  
+  // Keep only recent measurements
+  if (latencyMeasurements.length > MAX_MEASUREMENTS) {
+    latencyMeasurements.shift();
+  }
+  
+  // Estimate clock offset using median of apparent latencies
+  // Assumes network latency is roughly symmetric and stable
+  if (latencyMeasurements.length >= 3) {
+    const sortedLatencies = [...latencyMeasurements]
+      .map(m => m.apparentLatency)
+      .sort((a, b) => a - b);
+    const medianIndex = Math.floor(sortedLatencies.length / 2);
+    const medianLatency = sortedLatencies[medianIndex];
+    
+    // Estimate offset: if median is consistently positive/negative, it's likely clock offset
+    // For better accuracy, we use the minimum apparent latency as baseline
+    // (assuming at least one packet had minimal network delay)
+    const minLatency = Math.min(...sortedLatencies);
+    clockOffsetEstimate = minLatency > 0 ? minLatency : 0;
+  } else {
+    // With few measurements, use first measurement as initial estimate
+    clockOffsetEstimate = apparentLatency;
+  }
+  
+  // Estimate true latency by subtracting clock offset
+  // This assumes the minimum observed latency is close to true latency
+  const estimatedLatency = Math.max(0, apparentLatency - (clockOffsetEstimate || 0));
+  
+  return {
+    apparentLatency,
+    estimatedLatency,
+    clockOffset: clockOffsetEstimate,
+    serverTime,
+    clientTime,
+    valid: true
+  };
+}
+
 // GPIO Setup for LED (defect indicator)
 // Using GPIO pin 18 (physical pin 12) - change if needed
 // You can change this to another pin like 17, 27, 22, etc.
@@ -339,50 +433,36 @@ const method = namespace.addMethod(device, {
 });
 
 method.bindMethod((inputArguments, context, callback) => {
-  const receiveTime = Date.now(); // UTC milliseconds since epoch
   const inputValue = inputArguments[0].value;
   
-  // Try to extract client timestamp and message from JSON payload
+  // Try to extract message and timestamp from JSON payload
   let alarmMessage = inputValue;
   let clientTimestamp = null;
-  let payloadLatency = null;
   
   try {
-    // Check if the message is JSON with timestamp
+    // Check if the message is JSON
     if (typeof inputValue === 'string' && inputValue.startsWith('{')) {
       const parsed = JSON.parse(inputValue);
-      if (parsed.timestamp) {
-        // Parse timestamp string respecting its timezone
-        const parsedDate = new Date(parsed.timestamp);
-        clientTimestamp = parsedDate.getTime();
-        
-        // Compare timestamps (both in UTC milliseconds, timezone-agnostic)
-        if (!isNaN(clientTimestamp)) {
-          payloadLatency = receiveTime - clientTimestamp;
-        }
-      }
       alarmMessage = parsed.message || inputValue; // Use message field if available
+      clientTimestamp = parsed.timestamp || null; // Extract timestamp if present
     }
   } catch (e) {
     // Not JSON or parse error, use original value
     alarmMessage = inputValue;
   }
 
+  // Measure latency if timestamp is available
+  const latencyResult = clientTimestamp ? measureLatency(clientTimestamp) : null;
+
   // Process synchronously - complete all operations before responding
-  const timestamp = new Date().toISOString();
-  
-  // Logging (synchronous)
-  const receiveTimeISO = new Date(receiveTime).toISOString();
   console.log(`\n[PAYLOAD RECEIVED] Method Call: SoundTheAlarm`);
-  console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-  if (clientTimestamp !== null) {
-    console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-  }
   console.log(`  Alarm Message: ${alarmMessage}`);
-  if (payloadLatency !== null && payloadLatency >= 0) {
-    console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
+  if (latencyResult && latencyResult.valid) {
+    console.log(`  Apparent Latency: ${latencyResult.apparentLatency.toFixed(2)} ms (includes clock offset)`);
+    console.log(`  Estimated Latency: ${latencyResult.estimatedLatency.toFixed(2)} ms (adjusted for clock offset)`);
+    console.log(`  Clock Offset: ${latencyResult.clockOffset !== null ? latencyResult.clockOffset.toFixed(2) : 'N/A'} ms (server - client)`);
   } else {
-    console.log(`  Payload Latency: N/A (no valid client timestamp in payload)`);
+    console.log(`  Latency: N/A (no valid timestamp in payload)`);
   }
   
   const callMethodResult = {
@@ -391,7 +471,7 @@ method.bindMethod((inputArguments, context, callback) => {
       {
         dataType: DataType.String,
         arrayType: VariantArrayType.Scalar, // Scalar, not Array
-        value: `ALARM ACTIVATED: "${alarmMessage}" | Time: ${timestamp} | Status: ACKNOWLEDGED`,
+        value: `ALARM ACTIVATED: "${alarmMessage}" | Status: ACKNOWLEDGED`,
       },
     ],
   };
@@ -411,24 +491,22 @@ namespace.addVariable({
   value: {
     get: () => new Variant({ dataType: DataType.String, value: iphoneProductInspections }),
     set: (variant) => {
-      const receiveTime = Date.now(); // UTC milliseconds since epoch
       const payload = String(variant.value);
       
       // Store payload
       iphoneProductInspections = payload;
       
       // Process synchronously - complete all operations before responding
-      // Try to extract client timestamp from JSON payload
-      let clientTimestamp = null;
-      let payloadLatency = null;
-      
       let parsed = null;
       let hasDefects = false;
       let defectCount = 0;
       let defectMessage = '';
+      let clientTimestamp = null;
       
       try {
         parsed = JSON.parse(payload);
+        // Extract timestamp if present
+        clientTimestamp = parsed.timestamp || null;
         
         // Check for defects
         if (parsed.defects && Array.isArray(parsed.defects)) {
@@ -467,35 +545,23 @@ namespace.addVariable({
           setLED(false);
           startNoDefectsBlink();
         }
-        
-        // Parse timestamp for latency calculation
-        if (parsed.timestamp) {
-          // Parse timestamp string respecting its timezone
-          const parsedDate = new Date(parsed.timestamp);
-          clientTimestamp = parsedDate.getTime();
-          
-          // Compare timestamps (both in UTC milliseconds, timezone-agnostic)
-          if (!isNaN(clientTimestamp)) {
-            payloadLatency = receiveTime - clientTimestamp;
-          }
-        }
       } catch (e) {
         // Not JSON or parse error
         defectMessage = `⚠️ WARNING: Could not parse payload as JSON.`;
       }
       
+      // Measure latency if timestamp is available
+      const latencyResult = clientTimestamp ? measureLatency(clientTimestamp) : null;
+      
       // Logging (synchronous)
-      const receiveTimeISO = new Date(receiveTime).toISOString();
       console.log(`\n[PAYLOAD RECEIVED] Write Operation: iPhoneProductInspections`);
-      console.log(`  Receive Time: ${receiveTimeISO} (${receiveTime} ms since epoch)`);
-      if (clientTimestamp !== null) {
-        console.log(`  Client Send Time: ${new Date(clientTimestamp).toISOString()} (${clientTimestamp} ms since epoch)`);
-      }
       console.log(`  Payload: ${payload.substring(0, 100)}${payload.length > 100 ? '...' : ''}`);
-      if (payloadLatency !== null && payloadLatency >= 0) {
-        console.log(`  Payload Latency: ${payloadLatency.toFixed(2)} ms (from client send to server receive)`);
+      if (latencyResult && latencyResult.valid) {
+        console.log(`  Apparent Latency: ${latencyResult.apparentLatency.toFixed(2)} ms (includes clock offset)`);
+        console.log(`  Estimated Latency: ${latencyResult.estimatedLatency.toFixed(2)} ms (adjusted for clock offset)`);
+        console.log(`  Clock Offset: ${latencyResult.clockOffset !== null ? latencyResult.clockOffset.toFixed(2) : 'N/A'} ms (server - client)`);
       } else {
-        console.log(`  Payload Latency: N/A (no valid timestamp in payload - add "timestamp": "${new Date().toISOString()}" to JSON)`);
+        console.log(`  Latency: N/A (no valid timestamp in payload)`);
       }
       
       // Return after all processing is complete (synchronous round trip)
